@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { navItems } from '../../constants/site'
 import { clearAuthSession, getAuthSession } from '../../services/session'
+import RecurInLogo from '../common/RecurInLogo'
 
 const baseAccountItems = [
   { label: 'Account Options' },
@@ -212,12 +213,8 @@ function Header() {
     <header className="border-b border-[color:rgba(0,0,128,0.14)] bg-[var(--white)]">
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between py-4 md:hidden">
-          <Link
-            to="/"
-            onClick={closeMenu}
-            className="[font-family:var(--font-display)] text-4xl font-bold tracking-tight text-[var(--navy)]"
-          >
-            <span className="text-[var(--orange)]">Recur</span>IN
+          <Link to="/" onClick={closeMenu} aria-label="RecurIN home">
+            <RecurInLogo compact taglineClassName="hidden" />
           </Link>
 
           <button
@@ -232,12 +229,8 @@ function Header() {
         </div>
 
         <div className="hidden items-center py-5 md:grid md:grid-cols-[1fr_auto_1fr]">
-          <Link
-            to="/"
-            onClick={closeMenu}
-            className="justify-self-start [font-family:var(--font-display)] text-4xl font-bold tracking-tight text-[var(--navy)]"
-          >
-            <span className="text-[var(--orange)]">Recur</span>IN
+          <Link to="/" onClick={closeMenu} className="justify-self-start" aria-label="RecurIN home">
+            <RecurInLogo compact />
           </Link>
 
           <nav className="flex items-center justify-center gap-1" aria-label="Main navigation">

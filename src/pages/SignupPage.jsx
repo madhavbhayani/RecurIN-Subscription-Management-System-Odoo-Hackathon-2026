@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { countryCodeOptions } from '../constants/countryCodes'
 import { signupUser } from '../services/authApi'
-import AuthToast from '../components/common/AuthToast'
+import ToastMessage from '../components/common/ToastMessage'
 
 const DOMAIN_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/
 const TEN_DIGIT_PHONE_REGEX = /^\d{10}$/
@@ -37,7 +37,7 @@ function SignupPage() {
     }
     if (!DOMAIN_EMAIL_REGEX.test(email.trim())) {
       setToastVariant('error')
-      setToastMessage('Please enter email in this format: name@domain.com')
+      setToastMessage('Please enter an email in this format: name@domain.com.')
       return
     }
     if (password.trim().length < 8) {
@@ -68,11 +68,11 @@ function SignupPage() {
       })
 
       setToastVariant('success')
-      setToastMessage('Account created successfully. Please login to continue.')
+      setToastMessage('Account created successfully. Please log in to continue.')
       navigate('/login', {
         state: {
           toastVariant: 'success',
-          toastMessage: 'Account created successfully. Please login to continue.',
+          toastMessage: 'Account created successfully. Please log in to continue.',
         },
       })
     } catch (error) {
@@ -93,7 +93,11 @@ function SignupPage() {
           Join RecurIN to manage all subscriptions in one place.
         </p>
 
-        <AuthToast message={toastMessage} variant={toastVariant} />
+        <ToastMessage
+          message={toastMessage}
+          variant={toastVariant}
+          onClose={() => setToastMessage('')}
+        />
 
         <form className="mt-8 space-y-5" onSubmit={handleSignupSubmit} noValidate>
           <div className="space-y-2">

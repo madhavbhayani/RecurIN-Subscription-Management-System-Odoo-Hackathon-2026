@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { loginUser } from '../services/authApi'
 import { saveAuthSession } from '../services/session'
-import AuthToast from '../components/common/AuthToast'
+import ToastMessage from '../components/common/ToastMessage'
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
 
@@ -69,7 +69,11 @@ function LoginPage() {
           Sign in to your RecurIN account.
         </p>
 
-        <AuthToast message={toastMessage} variant={toastVariant} />
+        <ToastMessage
+          message={toastMessage}
+          variant={toastVariant}
+          onClose={() => setToastMessage('')}
+        />
 
         <form className="mt-8 space-y-5" onSubmit={handleLoginSubmit} noValidate>
           <div className="space-y-2">
