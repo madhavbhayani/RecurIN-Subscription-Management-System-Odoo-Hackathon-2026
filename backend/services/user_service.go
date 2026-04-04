@@ -147,6 +147,52 @@ func (service *UserService) TokenRoleFromDBRole(role models.Role) string {
 	}
 }
 
+func (service *UserService) ListUsersByRole(ctx context.Context, role models.Role, search string, limit int) ([]models.User, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	normalizedSearch := strings.TrimSpace(search)
+	normalizedRole := strings.TrimSpace(string(role))
+	if normalizedRole == "" {
+		return nil, ValidationError{Message: "Role is required."}
+	}
+
+	const query = `
+		SELECT id, name, email, phone_number, address, role, created_at, updated_at
+		FROM users."user"
+		WHERE role = $1
+		  AND (
+			$2 = ''
+			OR name ILIKE '%' || $2 || '%'
+			OR email ILIKE '%' || $2 || '%'
+			OR phone_number ILIKE '%' || $2 || '%'
+		  )
+		ORDER BY name ASC
+		LIMIT $3`
+
+	rows, err := service.db.Query(ctx, query, normalizedRole, normalizedSearch, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]models.User, 0)
+	for rows.Next() {
+		user, scanErr := scanUser(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan user row: %w", scanErr)
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating user rows: %w", err)
+	}
+
+	return users, nil
+}
+
 func scanUser(row pgx.Row) (models.User, error) {
 	var user models.User
 	var address *string

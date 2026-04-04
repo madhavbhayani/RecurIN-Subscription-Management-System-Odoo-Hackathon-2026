@@ -1,0 +1,84 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+  .logo-wrap {
+    padding: 2rem 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .variant-label {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #777;
+  }
+
+  .logo-bg-white {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 2.5rem 3.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0.5px solid #e8e8e8;
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-icon {
+    width: 52px;
+    height: 52px;
+  }
+
+  .logo-text-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .logo-name {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1;
+  }
+
+  .logo-tagline {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #aaa;
+  }
+</style>
+
+<div class="logo-wrap">
+  <div class="variant-label">Primary logo - light background</div>
+  <div class="logo-bg-white">
+    <div class="logo-row">
+      <svg class="logo-icon" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="52" height="52" rx="14" fill="#FF6B00"/>
+        <path d="M26 12 C18 12 12 18 12 26 C12 34 18 40 26 40" stroke="#fff" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        <path d="M26 40 C34 40 40 34 40 26 C40 18 34 12 26 12" stroke="#138808" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        <polygon points="26,8 31,15 21,15" fill="#fff"/>
+        <circle cx="26" cy="26" r="4" fill="#fff"/>
+        <circle cx="26" cy="26" r="2" fill="#FF6B00"/>
+      </svg>
+      <div class="logo-text-wrap">
+        <div class="logo-name"><span style="color:#FF6B00;">Recur</span><span style="color:#138808;">IN</span></div>
+        <div class="logo-tagline">Subscription Management</div>
+      </div>
+    </div>
+  </div>
+</div>

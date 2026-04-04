@@ -196,7 +196,7 @@ func (handler *AuthHandler) writeAuthError(writer http.ResponseWriter, err error
 	}
 
 	log.Printf("auth handler error: %v", err)
-	http.Error(writer, "request processing failed", http.StatusInternalServerError)
+	http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
 }
 
 func buildUserResponse(user models.User) map[string]interface{} {
