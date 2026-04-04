@@ -60,7 +60,16 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	quotationService := services.NewQuotationService(dbPool)
 	paymentTermService := services.NewPaymentTermService(dbPool)
 	discountService := services.NewDiscountService(dbPool)
-	subscriptionService := services.NewSubscriptionService(dbPool)
+	quoteNotifier := services.NewSubscriptionQuoteNotifier(services.SubscriptionQuoteNotifierConfig{
+		SMTPHost:        cfg.SMTPHost,
+		SMTPPort:        cfg.SMTPPort,
+		SMTPUsername:    cfg.SMTPUsername,
+		SMTPPassword:    cfg.SMTPPassword,
+		SMTPFromEmail:   cfg.SMTPFromEmail,
+		SMTPFromName:    cfg.SMTPFromName,
+		FrontendBaseURL: cfg.FrontendBaseURL,
+	})
+	subscriptionService := services.NewSubscriptionService(dbPool, quoteNotifier)
 
 	router := http.NewServeMux()
 	registerRoutes(router, tokenManager, workerPool, userService, attributeService, taxService, productService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService)
@@ -146,6 +155,34 @@ func registerRoutes(
 		),
 	)
 	router.Handle("GET /api/v1/admin/users/customers", adminListCustomerUsersRoute)
+
+	adminListUsersRoute := auth.AuthMiddleware(tokenManager)(
+		rbac.RequireRoles("admin", "internal-user")(
+			http.HandlerFunc(userHandler.HandleListUsers),
+		),
+	)
+	router.Handle("GET /api/v1/admin/users", adminListUsersRoute)
+
+	adminGetUserByIDRoute := auth.AuthMiddleware(tokenManager)(
+		rbac.RequireRoles("admin", "internal-user")(
+			http.HandlerFunc(userHandler.HandleGetUserByID),
+		),
+	)
+	router.Handle("GET /api/v1/admin/users/{userID}", adminGetUserByIDRoute)
+
+	adminUpdateUserRoute := auth.AuthMiddleware(tokenManager)(
+		rbac.RequireRoles("admin", "internal-user")(
+			http.HandlerFunc(userHandler.HandleUpdateUser),
+		),
+	)
+	router.Handle("PUT /api/v1/admin/users/{userID}", adminUpdateUserRoute)
+
+	adminDeleteUserRoute := auth.AuthMiddleware(tokenManager)(
+		rbac.RequireRoles("admin", "internal-user")(
+			http.HandlerFunc(userHandler.HandleDeleteUser),
+		),
+	)
+	router.Handle("DELETE /api/v1/admin/users/{userID}", adminDeleteUserRoute)
 
 	adminCreateAttributeRoute := auth.AuthMiddleware(tokenManager)(
 		rbac.RequireRoles("admin", "internal-user")(

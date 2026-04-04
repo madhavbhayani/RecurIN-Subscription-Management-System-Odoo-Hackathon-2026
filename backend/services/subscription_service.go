@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
@@ -47,11 +48,15 @@ type CreateSubscriptionInput struct {
 
 // SubscriptionService encapsulates subscription operations.
 type SubscriptionService struct {
-	db *pgxpool.Pool
+	db            *pgxpool.Pool
+	quoteNotifier *SubscriptionQuoteNotifier
 }
 
-func NewSubscriptionService(db *pgxpool.Pool) *SubscriptionService {
-	return &SubscriptionService{db: db}
+func NewSubscriptionService(db *pgxpool.Pool, quoteNotifier *SubscriptionQuoteNotifier) *SubscriptionService {
+	return &SubscriptionService{
+		db:            db,
+		quoteNotifier: quoteNotifier,
+	}
 }
 
 func normalizeSubscriptionStatus(status string) (models.SubscriptionStatus, bool) {
@@ -287,21 +292,60 @@ func scanSubscriptionRow(row pgx.Row) (models.Subscription, error) {
 	return subscription, nil
 }
 
-func (service *SubscriptionService) getCustomerNameByID(ctx context.Context, customerID string) (string, error) {
+func (service *SubscriptionService) getCustomerContactByID(ctx context.Context, customerID string) (string, string, error) {
 	const query = `
-		SELECT name
+		SELECT name, email
 		FROM users."user"
 		WHERE id = $1 AND role = 'User'`
 
 	var customerName string
-	if err := service.db.QueryRow(ctx, query, customerID).Scan(&customerName); err != nil {
+	var customerEmail string
+	if err := service.db.QueryRow(ctx, query, customerID).Scan(&customerName, &customerEmail); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ValidationError{Message: "Selected customer is invalid. Please choose a user with role User."}
+			return "", "", ValidationError{Message: "Selected customer is invalid. Please choose a user with role User."}
 		}
-		return "", fmt.Errorf("failed to validate customer: %w", err)
+		return "", "", fmt.Errorf("failed to validate customer: %w", err)
 	}
 
-	return customerName, nil
+	return customerName, customerEmail, nil
+}
+
+func (service *SubscriptionService) getSubscriptionStatusByID(ctx context.Context, querier subscriptionQuerier, subscriptionID string) (models.SubscriptionStatus, error) {
+	const query = `
+		SELECT status
+		FROM subscription.subscriptions
+		WHERE subscription_id = $1`
+
+	var status string
+	if err := querier.QueryRow(ctx, query, subscriptionID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrSubscriptionNotFound
+		}
+		return "", fmt.Errorf("failed to fetch subscription status: %w", err)
+	}
+
+	return models.SubscriptionStatus(status), nil
+}
+
+func (service *SubscriptionService) sendQuotationNotification(ctx context.Context, previousStatus models.SubscriptionStatus, subscription models.Subscription, customerEmail string) {
+	if service.quoteNotifier == nil || !service.quoteNotifier.IsEnabled() {
+		return
+	}
+	if subscription.Status != models.SubscriptionStatusQuotationSent {
+		return
+	}
+	if previousStatus == models.SubscriptionStatusQuotationSent {
+		return
+	}
+
+	recipientName := strings.TrimSpace(subscription.CustomerName)
+	if recipientName == "" {
+		recipientName = "Customer"
+	}
+
+	if err := service.quoteNotifier.SendQuotationEmail(ctx, customerEmail, recipientName, subscription); err != nil {
+		log.Printf("quotation notification send failed for subscription %s: %v", subscription.SubscriptionID, err)
+	}
 }
 
 func (service *SubscriptionService) ensureQuotationExists(ctx context.Context, quotationID string) error {
@@ -721,7 +765,7 @@ func (service *SubscriptionService) CreateSubscription(ctx context.Context, inpu
 		return models.Subscription{}, err
 	}
 
-	customerName, err := service.getCustomerNameByID(ctx, validatedInput.CustomerID)
+	customerName, customerEmail, err := service.getCustomerContactByID(ctx, validatedInput.CustomerID)
 	if err != nil {
 		return models.Subscription{}, err
 	}
@@ -836,6 +880,8 @@ func (service *SubscriptionService) CreateSubscription(ctx context.Context, inpu
 	if err := tx.Commit(ctx); err != nil {
 		return models.Subscription{}, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	service.sendQuotationNotification(ctx, "", subscription, customerEmail)
 
 	return subscription, nil
 }
@@ -1111,7 +1157,7 @@ func (service *SubscriptionService) UpdateSubscription(ctx context.Context, subs
 		return models.Subscription{}, err
 	}
 
-	customerName, err := service.getCustomerNameByID(ctx, validatedInput.CustomerID)
+	customerName, customerEmail, err := service.getCustomerContactByID(ctx, validatedInput.CustomerID)
 	if err != nil {
 		return models.Subscription{}, err
 	}
@@ -1131,6 +1177,11 @@ func (service *SubscriptionService) UpdateSubscription(ctx context.Context, subs
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
+
+	previousStatus, err := service.getSubscriptionStatusByID(ctx, tx, normalizedSubscriptionID)
+	if err != nil {
+		return models.Subscription{}, err
+	}
 
 	const query = `
 		UPDATE subscription.subscriptions
@@ -1200,7 +1251,14 @@ func (service *SubscriptionService) UpdateSubscription(ctx context.Context, subs
 		return models.Subscription{}, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return service.GetSubscriptionByID(ctx, updatedSubscriptionID)
+	updatedSubscription, err := service.GetSubscriptionByID(ctx, updatedSubscriptionID)
+	if err != nil {
+		return models.Subscription{}, err
+	}
+
+	service.sendQuotationNotification(ctx, previousStatus, updatedSubscription, customerEmail)
+
+	return updatedSubscription, nil
 }
 
 func (service *SubscriptionService) DeleteSubscription(ctx context.Context, subscriptionID string) error {

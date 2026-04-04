@@ -5,6 +5,7 @@ import {
   FiChevronDown,
   FiChevronRight,
   FiClipboard,
+  FiKey,
   FiLayers,
   FiLogOut,
   FiSettings,
@@ -19,6 +20,7 @@ const baseAdminMenuItems = [
   { label: 'Products', to: '/admin/products', icon: FiBox },
   { label: 'Reporting', to: '/admin/reporting', icon: FiClipboard },
   { label: 'Users', to: '/admin/users', icon: FiUsers },
+  { label: 'Roles', to: '/admin/roles', icon: FiKey },
 ]
 
 const configurationMenuItems = [

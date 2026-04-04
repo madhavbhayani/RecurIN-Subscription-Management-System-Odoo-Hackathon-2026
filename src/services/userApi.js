@@ -69,3 +69,29 @@ export function listCustomerUsers(search = '') {
     queryParams: { search },
   })
 }
+
+export function listUsers(search = '') {
+  return requestWithAuth('/api/v1/admin/users', {
+    method: 'GET',
+    queryParams: { search },
+  })
+}
+
+export function getUserById(userId) {
+  return requestWithAuth(`/api/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'GET',
+  })
+}
+
+export function updateUser(userId, payload) {
+  return requestWithAuth(`/api/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    payload,
+  })
+}
+
+export function deleteUser(userId) {
+  return requestWithAuth(`/api/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  })
+}

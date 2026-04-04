@@ -8,10 +8,12 @@ import AdminLayout from './pages/admin/AdminLayout'
 import SubscriptionPage from './pages/admin/subscription/SubscriptionPage'
 import SubscriptionNewPage from './pages/admin/subscription/SubscriptionNewPage'
 import AdminReportingPage from './pages/admin/AdminReportingPage'
-import AdminUsersPage from './pages/admin/AdminUsersPage'
+import AdminRolesPage from './pages/admin/AdminRolesPage'
 import ProductEditPage from './pages/admin/products/ProductEditPage'
 import ProductNewPage from './pages/admin/products/ProductNewPage'
 import ProductsPage from './pages/admin/products/ProductsPage'
+import UserEditPage from './pages/admin/users/UserEditPage'
+import UsersPage from './pages/admin/users/UsersPage'
 import AdminConfigurationsPage from './pages/admin/configurations/AdminConfigurationsPage'
 import AttributePage from './pages/admin/configurations/attribute/AttributePage'
 import AttributeNewPage from './pages/admin/configurations/attribute/AttributeNewPage'
@@ -67,7 +69,9 @@ function App() {
           <Route path="products/new" element={<ProductNewPage />} />
           <Route path="products/:productId" element={<ProductEditPage />} />
           <Route path="reporting" element={<AdminReportingPage />} />
-          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="users/:userId" element={<UserEditPage />} />
+          <Route path="roles" element={<AdminRolesPage />} />
           <Route path="configurations" element={<AdminConfigurationsPage />} />
           <Route path="configurations/attribute" element={<AttributePage />} />
           <Route path="configurations/attribute/new" element={<AttributeNewPage />} />

@@ -21,3 +21,13 @@ type User struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// UserSubscriptionSummary represents a user-linked subscription used in user edit screens.
+type UserSubscriptionSummary struct {
+	SubscriptionID     string    `json:"subscription_id"`
+	SubscriptionNumber string    `json:"subscription_number"`
+	NextInvoiceDate    time.Time `json:"next_invoice_date"`
+	Recurring          string    `json:"recurring"`
+	Plan               string    `json:"plan"`
+	Status             string    `json:"status"`
+}

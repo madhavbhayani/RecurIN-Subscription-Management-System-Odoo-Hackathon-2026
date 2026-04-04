@@ -19,6 +19,7 @@ import (
 var (
 	ErrEmailAlreadyExists = errors.New("email already exists")
 	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrUserNotFound       = errors.New("user not found")
 )
 
 // ValidationError indicates client-side invalid input.
@@ -36,6 +37,14 @@ type CreateUserInput struct {
 	Password    string
 	CountryCode string
 	PhoneNumber string
+}
+
+type UpdateUserInput struct {
+	Name        string
+	Email       string
+	PhoneNumber string
+	Address     string
+	Role        string
 }
 
 // UserService encapsulates user account operations.
@@ -191,6 +200,258 @@ func (service *UserService) ListUsersByRole(ctx context.Context, role models.Rol
 	}
 
 	return users, nil
+}
+
+func normalizeUserRole(role string) (models.Role, bool) {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "admin":
+		return models.RoleAdmin, true
+	case "internal", "internal-user", "internal_user":
+		return models.RoleInternal, true
+	case "user", "portal-user", "portal_user":
+		return models.RoleUser, true
+	default:
+		return "", false
+	}
+}
+
+func normalizePhoneNumber(phoneNumber string) string {
+	trimmedPhoneNumber := strings.TrimSpace(phoneNumber)
+	if trimmedPhoneNumber == "" {
+		return ""
+	}
+
+	digitsOnlyPhone := normalizeDigits(trimmedPhoneNumber)
+	if digitsOnlyPhone == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(trimmedPhoneNumber, "+") {
+		return "+" + digitsOnlyPhone
+	}
+
+	if len(digitsOnlyPhone) == 10 {
+		return "+91" + digitsOnlyPhone
+	}
+
+	return "+" + digitsOnlyPhone
+}
+
+func isValidE164Phone(phoneNumber string) bool {
+	e164PhoneRegex := regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
+	return e164PhoneRegex.MatchString(phoneNumber)
+}
+
+func validateUserUpdateInput(input UpdateUserInput) (UpdateUserInput, error) {
+	name := strings.TrimSpace(input.Name)
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	phoneNumber := normalizePhoneNumber(input.PhoneNumber)
+	address := strings.TrimSpace(input.Address)
+	role, validRole := normalizeUserRole(input.Role)
+
+	if name == "" || email == "" || phoneNumber == "" {
+		return UpdateUserInput{}, ValidationError{Message: "name, email and phone number are required"}
+	}
+	if !isValidEmail(email) {
+		return UpdateUserInput{}, ValidationError{Message: "invalid email format"}
+	}
+	if !isValidE164Phone(phoneNumber) {
+		return UpdateUserInput{}, ValidationError{Message: "phone number must be in valid format, e.g. +919876543210"}
+	}
+	if !validRole {
+		return UpdateUserInput{}, ValidationError{Message: "role must be Admin, Internal or User"}
+	}
+
+	return UpdateUserInput{
+		Name:        name,
+		Email:       email,
+		PhoneNumber: phoneNumber,
+		Address:     address,
+		Role:        string(role),
+	}, nil
+}
+
+func (service *UserService) ListUsers(ctx context.Context, search string, limit int) ([]models.User, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+
+	normalizedSearch := strings.TrimSpace(search)
+
+	const query = `
+		SELECT id, name, email, phone_number, address, role, created_at, updated_at
+		FROM users."user"
+		WHERE (
+			$1 = ''
+			OR name ILIKE '%' || $1 || '%'
+			OR email ILIKE '%' || $1 || '%'
+			OR phone_number ILIKE '%' || $1 || '%'
+			OR role::text ILIKE '%' || $1 || '%'
+		)
+		ORDER BY created_at DESC
+		LIMIT $2`
+
+	rows, err := service.db.Query(ctx, query, normalizedSearch, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]models.User, 0)
+	for rows.Next() {
+		user, scanErr := scanUser(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan user row: %w", scanErr)
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating user rows: %w", err)
+	}
+
+	return users, nil
+}
+
+func (service *UserService) GetUserByID(ctx context.Context, userID string) (models.User, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return models.User{}, ValidationError{Message: "User ID is required."}
+	}
+
+	const query = `
+		SELECT id, name, email, phone_number, address, role, created_at, updated_at
+		FROM users."user"
+		WHERE id = $1`
+
+	user, err := scanUser(service.db.QueryRow(ctx, query, normalizedUserID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.User{}, ErrUserNotFound
+		}
+		return models.User{}, fmt.Errorf("failed to fetch user: %w", err)
+	}
+
+	return user, nil
+}
+
+func (service *UserService) ListActiveSubscriptionsByUserID(ctx context.Context, userID string) ([]models.UserSubscriptionSummary, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return nil, ValidationError{Message: "User ID is required."}
+	}
+
+	const query = `
+		SELECT
+			s.subscription_id,
+			s.subscription_number,
+			s.next_invoice_date,
+			rp.billing_period,
+			rp.recurring_name,
+			s.status
+		FROM subscription.subscriptions s
+		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		WHERE s.customer_id = $1
+		  AND s.status IN ('Active', 'Confirmed')
+		ORDER BY s.next_invoice_date ASC, s.created_at DESC`
+
+	rows, err := service.db.Query(ctx, query, normalizedUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.UserSubscriptionSummary, 0)
+	for rows.Next() {
+		var item models.UserSubscriptionSummary
+		if err := rows.Scan(
+			&item.SubscriptionID,
+			&item.SubscriptionNumber,
+			&item.NextInvoiceDate,
+			&item.Recurring,
+			&item.Plan,
+			&item.Status,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan active subscription row: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating active subscriptions: %w", err)
+	}
+
+	return items, nil
+}
+
+func (service *UserService) UpdateUser(ctx context.Context, userID string, input UpdateUserInput) (models.User, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return models.User{}, ValidationError{Message: "User ID is required."}
+	}
+
+	validatedInput, err := validateUserUpdateInput(input)
+	if err != nil {
+		return models.User{}, err
+	}
+
+	const query = `
+		UPDATE users."user"
+		SET
+			name = $1,
+			phone_number = $2,
+			address = $3,
+			email = $4,
+			role = $5,
+			updated_at = NOW()
+		WHERE id = $6
+		RETURNING id, name, email, phone_number, address, role, created_at, updated_at`
+
+	user, err := scanUser(service.db.QueryRow(
+		ctx,
+		query,
+		validatedInput.Name,
+		validatedInput.PhoneNumber,
+		nullableString(validatedInput.Address),
+		validatedInput.Email,
+		validatedInput.Role,
+		normalizedUserID,
+	))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.User{}, ErrUserNotFound
+		}
+		if isUniqueViolation(err) {
+			return models.User{}, ErrEmailAlreadyExists
+		}
+		if isPhoneConstraintViolation(err) {
+			return models.User{}, ValidationError{Message: "phone number format is invalid"}
+		}
+		return models.User{}, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return user, nil
+}
+
+func (service *UserService) DeleteUser(ctx context.Context, userID string) error {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return ValidationError{Message: "User ID is required."}
+	}
+
+	result, err := service.db.Exec(ctx, `DELETE FROM users."user" WHERE id = $1`, normalizedUserID)
+	if err != nil {
+		if isForeignKeyViolation(err) {
+			return ValidationError{Message: "Cannot delete user because related subscriptions exist."}
+		}
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
 }
 
 func scanUser(row pgx.Row) (models.User, error) {
