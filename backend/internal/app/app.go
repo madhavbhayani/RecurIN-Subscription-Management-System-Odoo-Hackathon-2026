@@ -57,6 +57,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	taxService := services.NewTaxService(dbPool)
 	productService := services.NewProductService(dbPool)
 	cartService := services.NewCartService(dbPool)
+	payPalService := services.NewPayPalService(cfg.PayPalClientID, cfg.PayPalSecret, cfg.FrontendBaseURL, cartService)
 	recurringPlanService := services.NewRecurringPlanService(dbPool)
 	quotationService := services.NewQuotationService(dbPool)
 	paymentTermService := services.NewPaymentTermService(dbPool)
@@ -74,7 +75,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	subscriptionService := services.NewSubscriptionService(dbPool, quoteNotifier)
 
 	router := http.NewServeMux()
-	registerRoutes(router, dbPool, tokenManager, workerPool, userService, attributeService, taxService, productService, cartService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
+	registerRoutes(router, dbPool, tokenManager, workerPool, userService, attributeService, taxService, productService, cartService, payPalService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
@@ -117,6 +118,7 @@ func registerRoutes(
 	taxService *services.TaxService,
 	productService *services.ProductService,
 	cartService *services.CartService,
+	payPalService *services.PayPalService,
 	recurringPlanService *services.RecurringPlanService,
 	quotationService *services.QuotationService,
 	paymentTermService *services.PaymentTermService,
@@ -131,6 +133,7 @@ func registerRoutes(
 	taxHandler := handlers.NewTaxHandler(taxService)
 	productHandler := handlers.NewProductHandler(productService)
 	cartHandler := handlers.NewCartHandler(cartService)
+	paymentHandler := handlers.NewPaymentHandler(payPalService)
 	recurringPlanHandler := handlers.NewRecurringPlanHandler(recurringPlanService)
 	quotationHandler := handlers.NewQuotationHandler(quotationService)
 	paymentTermHandler := handlers.NewPaymentTermHandler(paymentTermService)
@@ -175,6 +178,8 @@ func registerRoutes(
 		)
 	}
 	router.Handle("GET /api/v1/auth/me", authenticatedRoute)
+	router.Handle("GET /api/v1/users/me", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleGetMyProfile)))
+	router.Handle("PATCH /api/v1/users/me/address", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleUpdateMyAddress)))
 
 	router.Handle("GET /api/v1/admin/ping", adminRoleRoute(http.HandlerFunc(authHandler.HandleAdminPing)))
 
@@ -277,6 +282,14 @@ func registerRoutes(
 	router.Handle(
 		"DELETE /api/v1/cart/items/{cartItemID}",
 		authenticatedCartRoute(http.HandlerFunc(cartHandler.HandleDeleteCartItem)),
+	)
+	router.Handle(
+		"POST /api/v1/payments/paypal/create-order",
+		authenticatedCartRoute(http.HandlerFunc(paymentHandler.HandleCreatePayPalOrder)),
+	)
+	router.Handle(
+		"POST /api/v1/payments/paypal/capture-order",
+		authenticatedCartRoute(http.HandlerFunc(paymentHandler.HandleCapturePayPalOrder)),
 	)
 
 	router.Handle(

@@ -201,8 +201,9 @@ func buildProductResponse(product models.Product) map[string]interface{} {
 	productVariants := make([]map[string]interface{}, 0, len(product.Variants))
 	for _, variant := range product.Variants {
 		productVariants = append(productVariants, map[string]interface{}{
-			"attribute_id":   variant.AttributeID,
-			"attribute_name": variant.AttributeName,
+			"attribute_id":        variant.AttributeID,
+			"attribute_name":      variant.AttributeName,
+			"default_extra_price": variant.DefaultExtraPrice,
 		})
 	}
 

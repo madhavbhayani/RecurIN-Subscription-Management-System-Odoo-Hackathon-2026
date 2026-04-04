@@ -23,6 +23,10 @@ type userUpdateRequest struct {
 	Address     string `json:"address"`
 }
 
+type userAddressUpdateRequest struct {
+	Address string `json:"address"`
+}
+
 func NewUserHandler(userService *services.UserService) *UserHandler {
 	return &UserHandler{userService: userService}
 }
@@ -186,5 +190,52 @@ func (handler *UserHandler) HandleListCustomerUsers(writer http.ResponseWriter, 
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"users": items,
+	})
+}
+
+func (handler *UserHandler) HandleGetMyProfile(writer http.ResponseWriter, request *http.Request) {
+	userID, ok := getAuthenticatedUserID(request)
+	if !ok {
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := handler.userService.GetUserByID(request.Context(), userID)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"user": buildAdminUserResponse(user),
+	})
+}
+
+func (handler *UserHandler) HandleUpdateMyAddress(writer http.ResponseWriter, request *http.Request) {
+	userID, ok := getAuthenticatedUserID(request)
+	if !ok {
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	defer request.Body.Close()
+
+	var payload userAddressUpdateRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		http.Error(writer, "Invalid request payload.", http.StatusBadRequest)
+		return
+	}
+
+	updatedUser, err := handler.userService.UpdateUserAddress(request.Context(), userID, payload.Address)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"message": "Address updated successfully.",
+		"user":    buildAdminUserResponse(updatedUser),
 	})
 }

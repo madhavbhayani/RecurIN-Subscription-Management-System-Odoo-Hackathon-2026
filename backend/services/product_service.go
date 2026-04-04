@@ -250,10 +250,13 @@ func fetchProductVariants(ctx context.Context, querier productQuerier, productID
 	const query = `
 		SELECT
 			pv.attribute_id,
-			a.attribute_name
+			a.attribute_name,
+			COALESCE(MIN(av.default_extra_price), 0)::float8 AS default_extra_price
 		FROM attributes.product_variants pv
 		JOIN attributes.attribute a ON a.attribute_id = pv.attribute_id
+		LEFT JOIN attributes.attribute_values av ON av.attribute_id = pv.attribute_id
 		WHERE pv.product_id = $1
+		GROUP BY pv.attribute_id, a.attribute_name
 		ORDER BY a.attribute_name ASC`
 
 	rows, err := querier.Query(ctx, query, productID)
@@ -268,6 +271,7 @@ func fetchProductVariants(ctx context.Context, querier productQuerier, productID
 		if err := rows.Scan(
 			&variant.AttributeID,
 			&variant.AttributeName,
+			&variant.DefaultExtraPrice,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan product variant row: %w", err)
 		}
@@ -475,6 +479,19 @@ func (service *ProductService) ListProducts(ctx context.Context, search string) 
 		if scanErr != nil {
 			return nil, fmt.Errorf("failed to scan product row: %w", scanErr)
 		}
+
+		discounts, discountErr := fetchProductDiscounts(ctx, service.db, product.ProductID)
+		if discountErr != nil {
+			return nil, discountErr
+		}
+
+		variants, variantErr := fetchProductVariants(ctx, service.db, product.ProductID)
+		if variantErr != nil {
+			return nil, variantErr
+		}
+
+		product.Discounts = discounts
+		product.Variants = variants
 		products = append(products, product)
 	}
 

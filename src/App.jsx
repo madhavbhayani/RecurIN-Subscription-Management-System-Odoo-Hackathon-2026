@@ -3,8 +3,11 @@ import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
-import ShopPage from './pages/ShopPage'
+import ShopPage from './pages/shop/ShopPage'
+import ShopProductDetailPage from './pages/shop/ShopProductDetailPage'
 import CartPage from './pages/CartPage'
+import CheckoutPage from './pages/CheckoutPage'
+import CheckoutSuccessPage from './pages/CheckoutSuccessPage'
 import SignupPage from './pages/SignupPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import SubscriptionPage from './pages/admin/subscription/SubscriptionPage'
@@ -114,7 +117,11 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/home" element={<HomePage />} />
           <Route path="/shop" element={<ShopPage />} />
+          <Route path="/shop/:productId" element={<ShopProductDetailPage />} />
           <Route path="/cart" element={<CartPage />} />
+          <Route path="/check-out" element={<CheckoutPage />} />
+          <Route path="/sucess" element={<CheckoutSuccessPage />} />
+          <Route path="/success" element={<Navigate to="/sucess" replace />} />
           <Route path="/about" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />

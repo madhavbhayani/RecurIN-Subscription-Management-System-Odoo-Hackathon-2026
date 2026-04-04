@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { listProductsPublic } from '../services/productApi'
-import { listRecurringPlansPublic } from '../services/recurringPlanApi'
+import { Link } from 'react-router-dom'
+import { listProductsPublic } from '../../services/productApi'
 
 const CURRENCY_SYMBOL = '\u20b9'
 
@@ -45,14 +45,14 @@ function resolveStaticImageURL(product, index) {
 function ProductCardSkeleton({ index }) {
   return (
     <div
-      key={`product-skeleton-${index}`}
+      key={`product-card-skeleton-${index}`}
       className="overflow-hidden rounded-2xl border border-[color:rgba(0,0,128,0.12)] bg-[var(--white)]"
     >
-      <div className="h-44 w-full animate-pulse bg-gradient-to-r from-[rgba(0,0,128,0.08)] via-[rgba(0,0,128,0.04)] to-[rgba(0,0,128,0.08)]" />
+      <div className="h-40 w-full animate-pulse bg-gradient-to-r from-[rgba(0,0,128,0.08)] via-[rgba(0,0,128,0.04)] to-[rgba(0,0,128,0.08)]" />
       <div className="space-y-3 p-4">
-        <div className="h-4 w-3/5 animate-pulse rounded bg-[rgba(0,0,128,0.1)]" />
+        <div className="h-4 w-3/5 animate-pulse rounded bg-[rgba(0,0,128,0.12)]" />
         <div className="h-3 w-2/5 animate-pulse rounded bg-[rgba(0,0,128,0.08)]" />
-        <div className="h-4 w-1/3 animate-pulse rounded bg-[rgba(0,0,128,0.1)]" />
+        <div className="h-3 w-1/3 animate-pulse rounded bg-[rgba(0,0,128,0.12)]" />
       </div>
     </div>
   )
@@ -67,7 +67,6 @@ function ShopPage() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [selectedPriceRange, setSelectedPriceRange] = useState('all')
   const [sortBy, setSortBy] = useState('price-asc')
-  const [fallbackBillingPeriod, setFallbackBillingPeriod] = useState('Monthly')
 
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
@@ -82,29 +81,17 @@ function ShopPage() {
   useEffect(() => {
     let isMounted = true
 
-    const fetchShopData = async () => {
+    const fetchProducts = async () => {
       setIsLoading(true)
       setErrorMessage('')
 
       try {
-        const [productsResponse, recurringPlansResponse] = await Promise.all([
-          listProductsPublic(searchTerm),
-          listRecurringPlansPublic('', true).catch(() => null),
-        ])
-
+        const response = await listProductsPublic(searchTerm)
         if (!isMounted) {
           return
         }
 
-        const nextProducts = Array.isArray(productsResponse?.products) ? productsResponse.products : []
-        const recurringPlans = Array.isArray(recurringPlansResponse?.recurring_plans)
-          ? recurringPlansResponse.recurring_plans
-          : []
-
-        const activeBillingPeriod = String(recurringPlans[0]?.billing_period ?? '').trim()
-
-        setProducts(nextProducts)
-        setFallbackBillingPeriod(activeBillingPeriod || 'Monthly')
+        setProducts(Array.isArray(response?.products) ? response.products : [])
       } catch (error) {
         if (!isMounted) {
           return
@@ -119,7 +106,7 @@ function ShopPage() {
       }
     }
 
-    fetchShopData()
+    fetchProducts()
 
     return () => {
       isMounted = false
@@ -191,7 +178,7 @@ function ShopPage() {
         <section className="border-b border-[color:rgba(0,0,128,0.1)] px-5 py-5 sm:px-7">
           <h1 className="text-3xl font-bold text-[var(--navy)] sm:text-4xl">All Products</h1>
           <p className="mt-2 text-sm text-[color:rgba(0,0,128,0.76)] sm:text-base">
-            Explore catalog items with static preview images, pricing, and recurring billing details.
+            Browse products and open a dedicated detail view for quantity, variants, and cart actions.
           </p>
         </section>
 
@@ -279,8 +266,8 @@ function ShopPage() {
             )}
 
             {isLoading ? (
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {Array.from({ length: 6 }, (_, index) => (
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 8 }, (_, index) => (
                   <ProductCardSkeleton key={`skeleton-${index}`} index={index} />
                 ))}
               </div>
@@ -289,39 +276,51 @@ function ShopPage() {
                 No products match your selected filters.
               </div>
             ) : (
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {visibleProducts.map((product, index) => {
+                  const productID = String(product?.product_id ?? '').trim()
                   const productName = String(product?.product_name ?? '').trim() || 'Untitled Product'
                   const productType = String(product?.product_type ?? '').trim() || 'Subscription Product'
-                  const billingPeriod = String(product?.billing_period ?? product?.recurring ?? '').trim() || fallbackBillingPeriod
+                  const recurringName = String(product?.recurring_name ?? '').trim() || 'Recurring subscription product'
+                  const billingPeriod = String(product?.billing_period ?? '').trim() || 'Monthly'
 
                   return (
                     <article
-                      key={String(product?.product_id ?? `${productName}-${index}`)}
-                      className="group overflow-hidden rounded-2xl border border-[color:rgba(0,0,128,0.12)] bg-[var(--white)] transition-all duration-300 hover:-translate-y-0.5 hover:border-[color:rgba(255,107,0,0.4)] hover:shadow-[0_12px_26px_rgba(0,0,128,0.09)]"
+                      key={productID || `${productName}-${index}`}
+                      className="overflow-hidden rounded-2xl border border-[color:rgba(0,0,128,0.12)] bg-[var(--white)] transition-all duration-300 hover:-translate-y-0.5 hover:border-[color:rgba(255,107,0,0.4)] hover:shadow-[0_12px_26px_rgba(0,0,128,0.09)]"
                     >
-                      <div className="aspect-[4/3] overflow-hidden bg-[rgba(0,0,128,0.05)]">
-                        <img
-                          src={resolveStaticImageURL(product, index)}
-                          alt={`${productName} preview`}
-                          loading="lazy"
-                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                      </div>
-
-                      <div className="flex items-start justify-between gap-3 p-4">
-                        <div className="min-w-0">
-                          <h3 className="truncate text-base font-bold text-[var(--navy)]">{productName}</h3>
-                          <p className="mt-1 text-xs text-[color:rgba(0,0,128,0.7)]">{productType}</p>
+                      <Link to={`/shop/${productID}/`} className="block">
+                        <div className="aspect-[4/3] overflow-hidden bg-[rgba(0,0,128,0.05)]">
+                          <img
+                            src={resolveStaticImageURL(product, index)}
+                            alt={`${productName} preview`}
+                            loading="lazy"
+                            className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+                          />
                         </div>
 
-                        <div className="shrink-0 text-right">
-                          <p className="text-sm font-bold text-[var(--navy)]">{formatPrice(product?.sales_price)}</p>
-                          <p className="mt-1 text-xs font-medium uppercase tracking-[0.04em] text-[color:rgba(0,0,128,0.64)]">
-                            {billingPeriod}
-                          </p>
+                        <div className="p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <h3 className="truncate text-sm font-bold text-[var(--navy)]">{productName}</h3>
+                              <p className="mt-1 text-xs text-[color:rgba(0,0,128,0.68)]">{productType}</p>
+                            </div>
+
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-[var(--navy)]">{formatPrice(product?.sales_price)}</p>
+                              <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-[color:rgba(0,0,128,0.62)]">
+                                /{billingPeriod}
+                              </p>
+                            </div>
+                          </div>
+
+                          <p className="mt-2 text-xs text-[color:rgba(0,0,128,0.7)]">{recurringName}</p>
+
+                          <span className="mt-3 inline-flex rounded-md border border-[color:rgba(0,0,128,0.2)] px-2 py-1 text-[11px] font-semibold text-[var(--navy)]">
+                            View Details
+                          </span>
                         </div>
-                      </div>
+                      </Link>
                     </article>
                   )
                 })}

@@ -14,6 +14,9 @@ type Config struct {
 	ServerPort                 string
 	MigrationsDir              string
 	FrontendBaseURL            string
+	PayPalClientID             string
+	PayPalSecret               string
+	CurrencyAPIKey             string
 	DBHost                     string
 	DBPort                     int
 	DBUser                     string
@@ -47,6 +50,9 @@ func Load() (Config, error) {
 		ServerPort:                 getEnv("SERVER_PORT", "8080"),
 		MigrationsDir:              getEnv("MIGRATIONS_DIR", "migrations"),
 		FrontendBaseURL:            getEnv("FRONTEND_BASE_URL", "http://localhost:5173"),
+		PayPalClientID:             getEnv("PAYPAL_CLIENT_ID", ""),
+		PayPalSecret:               getEnv("PAYPAL_SECRET", ""),
+		CurrencyAPIKey:             getEnv("CURRENCY_API", ""),
 		DBHost:                     getEnv("DB_HOST", "localhost"),
 		DBPort:                     getEnvAsInt("DB_PORT", 5432),
 		DBUser:                     getEnv("DB_USER", "postgres"),

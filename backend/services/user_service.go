@@ -425,6 +425,41 @@ func (service *UserService) UpdateUser(ctx context.Context, userID string, input
 	return user, nil
 }
 
+func (service *UserService) UpdateUserAddress(ctx context.Context, userID, address string) (models.User, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return models.User{}, ValidationError{Message: "User ID is required."}
+	}
+
+	normalizedAddress := strings.TrimSpace(address)
+	if normalizedAddress == "" {
+		return models.User{}, ValidationError{Message: "Address is required."}
+	}
+
+	const query = `
+		UPDATE users."user"
+		SET
+			address = $1,
+			updated_at = NOW()
+		WHERE id = $2
+		RETURNING id, name, email, phone_number, address, role, created_at, updated_at`
+
+	user, err := scanUser(service.db.QueryRow(
+		ctx,
+		query,
+		normalizedAddress,
+		normalizedUserID,
+	))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.User{}, ErrUserNotFound
+		}
+		return models.User{}, fmt.Errorf("failed to update user address: %w", err)
+	}
+
+	return user, nil
+}
+
 func (service *UserService) DeleteUser(ctx context.Context, userID string) error {
 	normalizedUserID := strings.TrimSpace(userID)
 	if normalizedUserID == "" {
