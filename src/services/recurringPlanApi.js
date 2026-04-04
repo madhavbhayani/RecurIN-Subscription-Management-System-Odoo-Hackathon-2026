@@ -2,6 +2,40 @@ import { getAuthSession } from './session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 
+function buildRequestUrl(path, queryParams) {
+  const url = new URL(`${API_BASE_URL}${path}`)
+
+  if (queryParams && typeof queryParams === 'object') {
+    Object.entries(queryParams).forEach(([key, value]) => {
+      const normalizedValue = String(value ?? '').trim()
+      if (normalizedValue !== '') {
+        url.searchParams.set(key, normalizedValue)
+      }
+    })
+  }
+
+  return url
+}
+
+async function parseResponse(response) {
+  const rawText = await response.text()
+  const normalizedText = rawText.trim()
+
+  let data = null
+  try {
+    data = normalizedText ? JSON.parse(normalizedText) : null
+  } catch {
+    data = null
+  }
+
+  if (!response.ok) {
+    const message = data?.message ?? data?.error ?? normalizedText ?? 'Request failed'
+    throw new Error(message)
+  }
+
+  return data
+}
+
 async function requestWithAuth(path, options = {}) {
   const {
     method = 'GET',
@@ -14,15 +48,7 @@ async function requestWithAuth(path, options = {}) {
     throw new Error('Your session has expired. Please log in again.')
   }
 
-  const url = new URL(`${API_BASE_URL}${path}`)
-  if (queryParams && typeof queryParams === 'object') {
-    Object.entries(queryParams).forEach(([key, value]) => {
-      const normalizedValue = String(value ?? '').trim()
-      if (normalizedValue !== '') {
-        url.searchParams.set(key, normalizedValue)
-      }
-    })
-  }
+  const url = buildRequestUrl(path, queryParams)
 
   const headers = {
     Authorization: `Bearer ${session.token}`,
@@ -45,26 +71,51 @@ async function requestWithAuth(path, options = {}) {
     throw new Error(`Unable to connect to backend at ${API_BASE_URL}. Please make sure the Go server is running.`)
   }
 
-  const rawText = await response.text()
-  const normalizedText = rawText.trim()
+  return parseResponse(response)
+}
 
-  let data = null
+async function requestPublic(path, options = {}) {
+  const {
+    method = 'GET',
+    payload,
+    queryParams = null,
+  } = options
+
+  const url = buildRequestUrl(path, queryParams)
+
+  const headers = {}
+  const fetchOptions = {
+    method,
+    headers,
+  }
+
+  if (payload !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    fetchOptions.body = JSON.stringify(payload)
+  }
+
+  let response
   try {
-    data = normalizedText ? JSON.parse(normalizedText) : null
+    response = await fetch(url.toString(), fetchOptions)
   } catch {
-    data = null
+    throw new Error(`Unable to connect to backend at ${API_BASE_URL}. Please make sure the Go server is running.`)
   }
 
-  if (!response.ok) {
-    const message = data?.message ?? data?.error ?? normalizedText ?? 'Request failed'
-    throw new Error(message)
-  }
-
-  return data
+  return parseResponse(response)
 }
 
 export function listRecurringPlans(search = '', activeOnly = false) {
   return requestWithAuth('/api/v1/admin/recurring-plans', {
+    method: 'GET',
+    queryParams: {
+      search,
+      active_only: String(Boolean(activeOnly)),
+    },
+  })
+}
+
+export function listRecurringPlansPublic(search = '', activeOnly = false) {
+  return requestPublic('/api/v1/recurring-plans', {
     method: 'GET',
     queryParams: {
       search,

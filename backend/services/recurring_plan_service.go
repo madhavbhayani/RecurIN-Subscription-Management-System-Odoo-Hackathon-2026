@@ -130,6 +130,46 @@ func scanRecurringPlanBaseRow(row pgx.Row) (models.RecurringPlan, error) {
 	return recurringPlan, nil
 }
 
+func fetchRecurringPlanProducts(ctx context.Context, db *pgxpool.Pool, recurringPlanID string) ([]models.RecurringPlanProduct, error) {
+	const query = `
+		SELECT
+			product_id,
+			product_name,
+			product_type,
+			sales_price::float8
+		FROM products.product_data
+		WHERE recurring_plan_id = $1
+		ORDER BY product_name ASC`
+
+	rows, err := db.Query(ctx, query, recurringPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch recurring plan products: %w", err)
+	}
+	defer rows.Close()
+
+	products := make([]models.RecurringPlanProduct, 0)
+	for rows.Next() {
+		var product models.RecurringPlanProduct
+		if err := rows.Scan(
+			&product.ProductID,
+			&product.ProductName,
+			&product.ProductType,
+			&product.SalesPrice,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan recurring plan product row: %w", err)
+		}
+
+		product.MinQty = 1
+		products = append(products, product)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating recurring plan products: %w", err)
+	}
+
+	return products, nil
+}
+
 func (service *RecurringPlanService) CreateRecurringPlan(ctx context.Context, input CreateRecurringPlanInput) (models.RecurringPlan, error) {
 	validatedInput, err := validateRecurringPlanInput(input)
 	if err != nil {
@@ -187,10 +227,22 @@ func (service *RecurringPlanService) ListRecurringPlans(ctx context.Context, sea
 			rp.is_active,
 			rp.created_at,
 			rp.updated_at,
-			0::int AS product_count
+			COUNT(p.product_id)::int AS product_count
 		FROM recurring_plans.recurring_plan_data rp
+		LEFT JOIN products.product_data p ON p.recurring_plan_id = rp.recurring_plan_id
 		WHERE ($1 = '' OR rp.recurring_name ILIKE '%' || $1 || '%')
 		  AND ($2 = FALSE OR rp.is_active = TRUE)
+		GROUP BY
+			rp.recurring_plan_id,
+			rp.recurring_name,
+			rp.billing_period,
+			rp.is_closable,
+			rp.automatic_close_cycles,
+			rp.is_pausable,
+			rp.is_renewable,
+			rp.is_active,
+			rp.created_at,
+			rp.updated_at
 		ORDER BY rp.created_at DESC`
 
 	rows, err := service.db.Query(ctx, query, normalizedSearch, activeOnly)
@@ -248,7 +300,14 @@ func (service *RecurringPlanService) GetRecurringPlanByID(ctx context.Context, r
 	}
 
 	recurringPlan.Products = []models.RecurringPlanProduct{}
-	recurringPlan.ProductCount = 0
+
+	products, err := fetchRecurringPlanProducts(ctx, service.db, normalizedRecurringPlanID)
+	if err != nil {
+		return models.RecurringPlan{}, err
+	}
+
+	recurringPlan.Products = products
+	recurringPlan.ProductCount = len(products)
 	return recurringPlan, nil
 }
 

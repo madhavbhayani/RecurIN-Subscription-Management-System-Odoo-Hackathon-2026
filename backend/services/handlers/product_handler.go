@@ -15,13 +15,14 @@ type productVariantRequest struct {
 }
 
 type productRequest struct {
-	ProductName string                  `json:"product_name"`
-	ProductType string                  `json:"product_type"`
-	SalesPrice  float64                 `json:"sales_price"`
-	CostPrice   float64                 `json:"cost_price"`
-	TaxIDs      []string                `json:"tax_ids"`
-	DiscountIDs []string                `json:"discount_ids"`
-	Variants    []productVariantRequest `json:"variants"`
+	ProductName     string                  `json:"product_name"`
+	ProductType     string                  `json:"product_type"`
+	SalesPrice      float64                 `json:"sales_price"`
+	CostPrice       float64                 `json:"cost_price"`
+	RecurringPlanID string                  `json:"recurring_plan_id"`
+	TaxIDs          []string                `json:"tax_ids"`
+	DiscountIDs     []string                `json:"discount_ids"`
+	Variants        []productVariantRequest `json:"variants"`
 }
 
 // ProductHandler handles product administration endpoints.
@@ -56,13 +57,14 @@ func (handler *ProductHandler) HandleCreateProduct(writer http.ResponseWriter, r
 	}
 
 	createdProduct, err := handler.productService.CreateProduct(request.Context(), services.CreateProductInput{
-		ProductName: payload.ProductName,
-		ProductType: payload.ProductType,
-		SalesPrice:  payload.SalesPrice,
-		CostPrice:   payload.CostPrice,
-		TaxIDs:      payload.TaxIDs,
-		DiscountIDs: payload.DiscountIDs,
-		Variants:    mapProductVariants(payload.Variants),
+		ProductName:     payload.ProductName,
+		ProductType:     payload.ProductType,
+		SalesPrice:      payload.SalesPrice,
+		CostPrice:       payload.CostPrice,
+		RecurringPlanID: payload.RecurringPlanID,
+		TaxIDs:          payload.TaxIDs,
+		DiscountIDs:     payload.DiscountIDs,
+		Variants:        mapProductVariants(payload.Variants),
 	})
 	if err != nil {
 		handler.writeProductError(writer, err)
@@ -123,13 +125,14 @@ func (handler *ProductHandler) HandleUpdateProduct(writer http.ResponseWriter, r
 	}
 
 	updatedProduct, err := handler.productService.UpdateProduct(request.Context(), productID, services.CreateProductInput{
-		ProductName: payload.ProductName,
-		ProductType: payload.ProductType,
-		SalesPrice:  payload.SalesPrice,
-		CostPrice:   payload.CostPrice,
-		TaxIDs:      payload.TaxIDs,
-		DiscountIDs: payload.DiscountIDs,
-		Variants:    mapProductVariants(payload.Variants),
+		ProductName:     payload.ProductName,
+		ProductType:     payload.ProductType,
+		SalesPrice:      payload.SalesPrice,
+		CostPrice:       payload.CostPrice,
+		RecurringPlanID: payload.RecurringPlanID,
+		TaxIDs:          payload.TaxIDs,
+		DiscountIDs:     payload.DiscountIDs,
+		Variants:        mapProductVariants(payload.Variants),
 	})
 	if err != nil {
 		handler.writeProductError(writer, err)
@@ -204,15 +207,18 @@ func buildProductResponse(product models.Product) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"product_id":   product.ProductID,
-		"product_name": product.ProductName,
-		"product_type": product.ProductType,
-		"sales_price":  product.SalesPrice,
-		"cost_price":   product.CostPrice,
-		"taxes":        productTaxes,
-		"discounts":    productDiscounts,
-		"variants":     productVariants,
-		"created_at":   product.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
-		"updated_at":   product.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		"product_id":        product.ProductID,
+		"product_name":      product.ProductName,
+		"product_type":      product.ProductType,
+		"sales_price":       product.SalesPrice,
+		"cost_price":        product.CostPrice,
+		"recurring_plan_id": product.RecurringPlanID,
+		"recurring_name":    product.RecurringName,
+		"billing_period":    product.BillingPeriod,
+		"taxes":             productTaxes,
+		"discounts":         productDiscounts,
+		"variants":          productVariants,
+		"created_at":        product.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		"updated_at":        product.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }

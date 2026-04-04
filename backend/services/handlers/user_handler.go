@@ -21,7 +21,6 @@ type userUpdateRequest struct {
 	Email       string `json:"email"`
 	PhoneNumber string `json:"phone_number"`
 	Address     string `json:"address"`
-	Role        string `json:"role"`
 }
 
 func NewUserHandler(userService *services.UserService) *UserHandler {
@@ -145,7 +144,6 @@ func (handler *UserHandler) HandleUpdateUser(writer http.ResponseWriter, request
 		Email:       payload.Email,
 		PhoneNumber: payload.PhoneNumber,
 		Address:     payload.Address,
-		Role:        payload.Role,
 	})
 	if err != nil {
 		handler.writeUserError(writer, err)

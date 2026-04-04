@@ -60,6 +60,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	quotationService := services.NewQuotationService(dbPool)
 	paymentTermService := services.NewPaymentTermService(dbPool)
 	discountService := services.NewDiscountService(dbPool)
+	roleService := services.NewRoleService(dbPool)
 	quoteNotifier := services.NewSubscriptionQuoteNotifier(services.SubscriptionQuoteNotifierConfig{
 		SMTPHost:        cfg.SMTPHost,
 		SMTPPort:        cfg.SMTPPort,
@@ -72,7 +73,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	subscriptionService := services.NewSubscriptionService(dbPool, quoteNotifier)
 
 	router := http.NewServeMux()
-	registerRoutes(router, tokenManager, workerPool, userService, attributeService, taxService, productService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService)
+	registerRoutes(router, dbPool, tokenManager, workerPool, userService, attributeService, taxService, productService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
@@ -107,6 +108,7 @@ func (a *Application) Shutdown(ctx context.Context) error {
 
 func registerRoutes(
 	router *http.ServeMux,
+	dbPool *pgxpool.Pool,
 	tokenManager *auth.TokenManager,
 	workerPool *queue.WorkerPool,
 	userService *services.UserService,
@@ -118,6 +120,7 @@ func registerRoutes(
 	paymentTermService *services.PaymentTermService,
 	discountService *services.DiscountService,
 	subscriptionService *services.SubscriptionService,
+	roleService *services.RoleService,
 ) {
 	healthHandler := handlers.NewHealthHandler()
 	authHandler := handlers.NewAuthHandler(tokenManager, workerPool, userService)
@@ -130,10 +133,31 @@ func registerRoutes(
 	paymentTermHandler := handlers.NewPaymentTermHandler(paymentTermService)
 	discountHandler := handlers.NewDiscountHandler(discountService)
 	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionService)
+	roleHandler := handlers.NewRoleHandler(roleService)
+
+	adminRoleRoute := func(handler http.Handler) http.Handler {
+		return auth.AuthMiddleware(tokenManager)(
+			rbac.RequireRoles("admin", "internal-user")(
+				handler,
+			),
+		)
+	}
+
+	adminPermissionRoute := func(resourceKey string, action rbac.PermissionAction, handler http.Handler) http.Handler {
+		return auth.AuthMiddleware(tokenManager)(
+			rbac.RequireRoles("admin", "internal-user")(
+				rbac.RequirePermission(dbPool, resourceKey, action)(
+					handler,
+				),
+			),
+		)
+	}
 
 	router.HandleFunc("GET /api/v1/health", healthHandler.HandleHealth)
 	router.HandleFunc("POST /api/v1/auth/signup", authHandler.HandleSignup)
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.HandleLogin)
+	router.HandleFunc("GET /api/v1/products", productHandler.HandleListProducts)
+	router.HandleFunc("GET /api/v1/recurring-plans", recurringPlanHandler.HandleListRecurringPlans)
 
 	authenticatedRoute := auth.AuthMiddleware(tokenManager)(
 		rbac.RequireRoles("admin", "internal-user", "user", "portal-user")(
@@ -142,325 +166,215 @@ func registerRoutes(
 	)
 	router.Handle("GET /api/v1/auth/me", authenticatedRoute)
 
-	adminRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(authHandler.HandleAdminPing),
-		),
-	)
-	router.Handle("GET /api/v1/admin/ping", adminRoute)
+	router.Handle("GET /api/v1/admin/ping", adminRoleRoute(http.HandlerFunc(authHandler.HandleAdminPing)))
 
-	adminListCustomerUsersRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(userHandler.HandleListCustomerUsers),
-		),
+	router.Handle(
+		"GET /api/v1/admin/users/customers",
+		adminPermissionRoute(rbac.ResourceUsers, rbac.PermissionActionRead, http.HandlerFunc(userHandler.HandleListCustomerUsers)),
 	)
-	router.Handle("GET /api/v1/admin/users/customers", adminListCustomerUsersRoute)
+	router.Handle(
+		"GET /api/v1/admin/users",
+		adminPermissionRoute(rbac.ResourceUsers, rbac.PermissionActionRead, http.HandlerFunc(userHandler.HandleListUsers)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/users/{userID}",
+		adminPermissionRoute(rbac.ResourceUsers, rbac.PermissionActionRead, http.HandlerFunc(userHandler.HandleGetUserByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/users/{userID}",
+		adminPermissionRoute(rbac.ResourceUsers, rbac.PermissionActionUpdate, http.HandlerFunc(userHandler.HandleUpdateUser)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/users/{userID}",
+		adminPermissionRoute(rbac.ResourceUsers, rbac.PermissionActionDelete, http.HandlerFunc(userHandler.HandleDeleteUser)),
+	)
 
-	adminListUsersRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(userHandler.HandleListUsers),
-		),
+	router.Handle(
+		"POST /api/v1/admin/attributes",
+		adminPermissionRoute(rbac.ResourceConfigurationsAttribute, rbac.PermissionActionCreate, http.HandlerFunc(attributeHandler.HandleCreateAttribute)),
 	)
-	router.Handle("GET /api/v1/admin/users", adminListUsersRoute)
+	router.Handle(
+		"GET /api/v1/admin/attributes",
+		adminPermissionRoute(rbac.ResourceConfigurationsAttribute, rbac.PermissionActionRead, http.HandlerFunc(attributeHandler.HandleListAttributes)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/attributes/{attributeID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsAttribute, rbac.PermissionActionRead, http.HandlerFunc(attributeHandler.HandleGetAttributeByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/attributes/{attributeID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsAttribute, rbac.PermissionActionUpdate, http.HandlerFunc(attributeHandler.HandleUpdateAttribute)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/attributes/{attributeID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsAttribute, rbac.PermissionActionDelete, http.HandlerFunc(attributeHandler.HandleDeleteAttribute)),
+	)
 
-	adminGetUserByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(userHandler.HandleGetUserByID),
-		),
+	router.Handle(
+		"POST /api/v1/admin/taxes",
+		adminPermissionRoute(rbac.ResourceConfigurationsTaxes, rbac.PermissionActionCreate, http.HandlerFunc(taxHandler.HandleCreateTax)),
 	)
-	router.Handle("GET /api/v1/admin/users/{userID}", adminGetUserByIDRoute)
+	router.Handle(
+		"GET /api/v1/admin/taxes",
+		adminPermissionRoute(rbac.ResourceConfigurationsTaxes, rbac.PermissionActionRead, http.HandlerFunc(taxHandler.HandleListTaxes)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/taxes/{taxID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsTaxes, rbac.PermissionActionRead, http.HandlerFunc(taxHandler.HandleGetTaxByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/taxes/{taxID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsTaxes, rbac.PermissionActionUpdate, http.HandlerFunc(taxHandler.HandleUpdateTax)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/taxes/{taxID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsTaxes, rbac.PermissionActionDelete, http.HandlerFunc(taxHandler.HandleDeleteTax)),
+	)
 
-	adminUpdateUserRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(userHandler.HandleUpdateUser),
-		),
+	router.Handle(
+		"POST /api/v1/admin/products",
+		adminPermissionRoute(rbac.ResourceProducts, rbac.PermissionActionCreate, http.HandlerFunc(productHandler.HandleCreateProduct)),
 	)
-	router.Handle("PUT /api/v1/admin/users/{userID}", adminUpdateUserRoute)
+	router.Handle(
+		"GET /api/v1/admin/products",
+		adminPermissionRoute(rbac.ResourceProducts, rbac.PermissionActionRead, http.HandlerFunc(productHandler.HandleListProducts)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/products/{productID}",
+		adminPermissionRoute(rbac.ResourceProducts, rbac.PermissionActionRead, http.HandlerFunc(productHandler.HandleGetProductByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/products/{productID}",
+		adminPermissionRoute(rbac.ResourceProducts, rbac.PermissionActionUpdate, http.HandlerFunc(productHandler.HandleUpdateProduct)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/products/{productID}",
+		adminPermissionRoute(rbac.ResourceProducts, rbac.PermissionActionDelete, http.HandlerFunc(productHandler.HandleDeleteProduct)),
+	)
 
-	adminDeleteUserRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(userHandler.HandleDeleteUser),
-		),
+	router.Handle(
+		"POST /api/v1/admin/recurring-plans",
+		adminPermissionRoute(rbac.ResourceConfigurationsRecurring, rbac.PermissionActionCreate, http.HandlerFunc(recurringPlanHandler.HandleCreateRecurringPlan)),
 	)
-	router.Handle("DELETE /api/v1/admin/users/{userID}", adminDeleteUserRoute)
+	router.Handle(
+		"GET /api/v1/admin/recurring-plans",
+		adminPermissionRoute(rbac.ResourceConfigurationsRecurring, rbac.PermissionActionRead, http.HandlerFunc(recurringPlanHandler.HandleListRecurringPlans)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/recurring-plans/{recurringPlanID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsRecurring, rbac.PermissionActionRead, http.HandlerFunc(recurringPlanHandler.HandleGetRecurringPlanByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/recurring-plans/{recurringPlanID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsRecurring, rbac.PermissionActionUpdate, http.HandlerFunc(recurringPlanHandler.HandleUpdateRecurringPlan)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/recurring-plans/{recurringPlanID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsRecurring, rbac.PermissionActionDelete, http.HandlerFunc(recurringPlanHandler.HandleDeleteRecurringPlan)),
+	)
 
-	adminCreateAttributeRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(attributeHandler.HandleCreateAttribute),
-		),
+	router.Handle(
+		"POST /api/v1/admin/quotations",
+		adminPermissionRoute(rbac.ResourceConfigurationsQuotation, rbac.PermissionActionCreate, http.HandlerFunc(quotationHandler.HandleCreateQuotation)),
 	)
-	router.Handle("POST /api/v1/admin/attributes", adminCreateAttributeRoute)
+	router.Handle(
+		"GET /api/v1/admin/quotations",
+		adminPermissionRoute(rbac.ResourceConfigurationsQuotation, rbac.PermissionActionRead, http.HandlerFunc(quotationHandler.HandleListQuotations)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/quotations/{quotationID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsQuotation, rbac.PermissionActionRead, http.HandlerFunc(quotationHandler.HandleGetQuotationByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/quotations/{quotationID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsQuotation, rbac.PermissionActionUpdate, http.HandlerFunc(quotationHandler.HandleUpdateQuotation)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/quotations/{quotationID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsQuotation, rbac.PermissionActionDelete, http.HandlerFunc(quotationHandler.HandleDeleteQuotation)),
+	)
 
-	adminListAttributesRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(attributeHandler.HandleListAttributes),
-		),
+	router.Handle(
+		"POST /api/v1/admin/payment-terms",
+		adminPermissionRoute(rbac.ResourceConfigurationsPaymentTerm, rbac.PermissionActionCreate, http.HandlerFunc(paymentTermHandler.HandleCreatePaymentTerm)),
 	)
-	router.Handle("GET /api/v1/admin/attributes", adminListAttributesRoute)
+	router.Handle(
+		"GET /api/v1/admin/payment-terms",
+		adminPermissionRoute(rbac.ResourceConfigurationsPaymentTerm, rbac.PermissionActionRead, http.HandlerFunc(paymentTermHandler.HandleListPaymentTerms)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/payment-terms/{paymentTermID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsPaymentTerm, rbac.PermissionActionRead, http.HandlerFunc(paymentTermHandler.HandleGetPaymentTermByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/payment-terms/{paymentTermID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsPaymentTerm, rbac.PermissionActionUpdate, http.HandlerFunc(paymentTermHandler.HandleUpdatePaymentTerm)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/payment-terms/{paymentTermID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsPaymentTerm, rbac.PermissionActionDelete, http.HandlerFunc(paymentTermHandler.HandleDeletePaymentTerm)),
+	)
 
-	adminGetAttributeByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(attributeHandler.HandleGetAttributeByID),
-		),
+	router.Handle(
+		"POST /api/v1/admin/discounts",
+		adminPermissionRoute(rbac.ResourceConfigurationsDiscount, rbac.PermissionActionCreate, http.HandlerFunc(discountHandler.HandleCreateDiscount)),
 	)
-	router.Handle("GET /api/v1/admin/attributes/{attributeID}", adminGetAttributeByIDRoute)
+	router.Handle(
+		"GET /api/v1/admin/discounts",
+		adminPermissionRoute(rbac.ResourceConfigurationsDiscount, rbac.PermissionActionRead, http.HandlerFunc(discountHandler.HandleListDiscounts)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/discounts/{discountID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsDiscount, rbac.PermissionActionRead, http.HandlerFunc(discountHandler.HandleGetDiscountByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/discounts/{discountID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsDiscount, rbac.PermissionActionUpdate, http.HandlerFunc(discountHandler.HandleUpdateDiscount)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/discounts/{discountID}",
+		adminPermissionRoute(rbac.ResourceConfigurationsDiscount, rbac.PermissionActionDelete, http.HandlerFunc(discountHandler.HandleDeleteDiscount)),
+	)
 
-	adminUpdateAttributeRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(attributeHandler.HandleUpdateAttribute),
-		),
+	router.Handle(
+		"POST /api/v1/admin/subscriptions",
+		adminPermissionRoute(rbac.ResourceSubscriptions, rbac.PermissionActionCreate, http.HandlerFunc(subscriptionHandler.HandleCreateSubscription)),
 	)
-	router.Handle("PUT /api/v1/admin/attributes/{attributeID}", adminUpdateAttributeRoute)
+	router.Handle(
+		"GET /api/v1/admin/subscriptions",
+		adminPermissionRoute(rbac.ResourceSubscriptions, rbac.PermissionActionRead, http.HandlerFunc(subscriptionHandler.HandleListSubscriptions)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/subscriptions/{subscriptionID}",
+		adminPermissionRoute(rbac.ResourceSubscriptions, rbac.PermissionActionRead, http.HandlerFunc(subscriptionHandler.HandleGetSubscriptionByID)),
+	)
+	router.Handle(
+		"PUT /api/v1/admin/subscriptions/{subscriptionID}",
+		adminPermissionRoute(rbac.ResourceSubscriptions, rbac.PermissionActionUpdate, http.HandlerFunc(subscriptionHandler.HandleUpdateSubscription)),
+	)
+	router.Handle(
+		"DELETE /api/v1/admin/subscriptions/{subscriptionID}",
+		adminPermissionRoute(rbac.ResourceSubscriptions, rbac.PermissionActionDelete, http.HandlerFunc(subscriptionHandler.HandleDeleteSubscription)),
+	)
 
-	adminDeleteAttributeRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(attributeHandler.HandleDeleteAttribute),
-		),
+	router.Handle(
+		"POST /api/v1/admin/roles",
+		adminPermissionRoute(rbac.ResourceRoles, rbac.PermissionActionCreate, http.HandlerFunc(roleHandler.HandleCreateRole)),
 	)
-	router.Handle("DELETE /api/v1/admin/attributes/{attributeID}", adminDeleteAttributeRoute)
-
-	adminCreateTaxRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(taxHandler.HandleCreateTax),
-		),
+	router.Handle(
+		"GET /api/v1/admin/roles",
+		adminPermissionRoute(rbac.ResourceRoles, rbac.PermissionActionRead, http.HandlerFunc(roleHandler.HandleListRoles)),
 	)
-	router.Handle("POST /api/v1/admin/taxes", adminCreateTaxRoute)
-
-	adminListTaxesRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(taxHandler.HandleListTaxes),
-		),
+	router.Handle(
+		"GET /api/v1/admin/roles/{roleID}",
+		adminPermissionRoute(rbac.ResourceRoles, rbac.PermissionActionRead, http.HandlerFunc(roleHandler.HandleGetRoleByID)),
 	)
-	router.Handle("GET /api/v1/admin/taxes", adminListTaxesRoute)
-
-	adminGetTaxByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(taxHandler.HandleGetTaxByID),
-		),
+	router.Handle(
+		"PUT /api/v1/admin/roles/{roleID}",
+		adminPermissionRoute(rbac.ResourceRoles, rbac.PermissionActionUpdate, http.HandlerFunc(roleHandler.HandleUpdateRole)),
 	)
-	router.Handle("GET /api/v1/admin/taxes/{taxID}", adminGetTaxByIDRoute)
-
-	adminUpdateTaxRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(taxHandler.HandleUpdateTax),
-		),
+	router.Handle(
+		"DELETE /api/v1/admin/roles/{roleID}",
+		adminPermissionRoute(rbac.ResourceRoles, rbac.PermissionActionDelete, http.HandlerFunc(roleHandler.HandleDeleteRole)),
 	)
-	router.Handle("PUT /api/v1/admin/taxes/{taxID}", adminUpdateTaxRoute)
-
-	adminDeleteTaxRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(taxHandler.HandleDeleteTax),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/taxes/{taxID}", adminDeleteTaxRoute)
-
-	adminCreateProductRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(productHandler.HandleCreateProduct),
-		),
-	)
-	router.Handle("POST /api/v1/admin/products", adminCreateProductRoute)
-
-	adminListProductsRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(productHandler.HandleListProducts),
-		),
-	)
-	router.Handle("GET /api/v1/admin/products", adminListProductsRoute)
-
-	adminGetProductByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(productHandler.HandleGetProductByID),
-		),
-	)
-	router.Handle("GET /api/v1/admin/products/{productID}", adminGetProductByIDRoute)
-
-	adminUpdateProductRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(productHandler.HandleUpdateProduct),
-		),
-	)
-	router.Handle("PUT /api/v1/admin/products/{productID}", adminUpdateProductRoute)
-
-	adminDeleteProductRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(productHandler.HandleDeleteProduct),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/products/{productID}", adminDeleteProductRoute)
-
-	adminCreateRecurringPlanRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(recurringPlanHandler.HandleCreateRecurringPlan),
-		),
-	)
-	router.Handle("POST /api/v1/admin/recurring-plans", adminCreateRecurringPlanRoute)
-
-	adminListRecurringPlansRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(recurringPlanHandler.HandleListRecurringPlans),
-		),
-	)
-	router.Handle("GET /api/v1/admin/recurring-plans", adminListRecurringPlansRoute)
-
-	adminGetRecurringPlanByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(recurringPlanHandler.HandleGetRecurringPlanByID),
-		),
-	)
-	router.Handle("GET /api/v1/admin/recurring-plans/{recurringPlanID}", adminGetRecurringPlanByIDRoute)
-
-	adminUpdateRecurringPlanRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(recurringPlanHandler.HandleUpdateRecurringPlan),
-		),
-	)
-	router.Handle("PUT /api/v1/admin/recurring-plans/{recurringPlanID}", adminUpdateRecurringPlanRoute)
-
-	adminDeleteRecurringPlanRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(recurringPlanHandler.HandleDeleteRecurringPlan),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/recurring-plans/{recurringPlanID}", adminDeleteRecurringPlanRoute)
-
-	adminCreateQuotationRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(quotationHandler.HandleCreateQuotation),
-		),
-	)
-	router.Handle("POST /api/v1/admin/quotations", adminCreateQuotationRoute)
-
-	adminListQuotationsRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(quotationHandler.HandleListQuotations),
-		),
-	)
-	router.Handle("GET /api/v1/admin/quotations", adminListQuotationsRoute)
-
-	adminGetQuotationByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(quotationHandler.HandleGetQuotationByID),
-		),
-	)
-	router.Handle("GET /api/v1/admin/quotations/{quotationID}", adminGetQuotationByIDRoute)
-
-	adminUpdateQuotationRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(quotationHandler.HandleUpdateQuotation),
-		),
-	)
-	router.Handle("PUT /api/v1/admin/quotations/{quotationID}", adminUpdateQuotationRoute)
-
-	adminDeleteQuotationRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(quotationHandler.HandleDeleteQuotation),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/quotations/{quotationID}", adminDeleteQuotationRoute)
-
-	adminCreatePaymentTermRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(paymentTermHandler.HandleCreatePaymentTerm),
-		),
-	)
-	router.Handle("POST /api/v1/admin/payment-terms", adminCreatePaymentTermRoute)
-
-	adminListPaymentTermsRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(paymentTermHandler.HandleListPaymentTerms),
-		),
-	)
-	router.Handle("GET /api/v1/admin/payment-terms", adminListPaymentTermsRoute)
-
-	adminGetPaymentTermByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(paymentTermHandler.HandleGetPaymentTermByID),
-		),
-	)
-	router.Handle("GET /api/v1/admin/payment-terms/{paymentTermID}", adminGetPaymentTermByIDRoute)
-
-	adminUpdatePaymentTermRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(paymentTermHandler.HandleUpdatePaymentTerm),
-		),
-	)
-	router.Handle("PUT /api/v1/admin/payment-terms/{paymentTermID}", adminUpdatePaymentTermRoute)
-
-	adminDeletePaymentTermRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(paymentTermHandler.HandleDeletePaymentTerm),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/payment-terms/{paymentTermID}", adminDeletePaymentTermRoute)
-
-	adminCreateDiscountRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(discountHandler.HandleCreateDiscount),
-		),
-	)
-	router.Handle("POST /api/v1/admin/discounts", adminCreateDiscountRoute)
-
-	adminListDiscountsRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(discountHandler.HandleListDiscounts),
-		),
-	)
-	router.Handle("GET /api/v1/admin/discounts", adminListDiscountsRoute)
-
-	adminGetDiscountByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(discountHandler.HandleGetDiscountByID),
-		),
-	)
-	router.Handle("GET /api/v1/admin/discounts/{discountID}", adminGetDiscountByIDRoute)
-
-	adminUpdateDiscountRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(discountHandler.HandleUpdateDiscount),
-		),
-	)
-	router.Handle("PUT /api/v1/admin/discounts/{discountID}", adminUpdateDiscountRoute)
-
-	adminDeleteDiscountRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(discountHandler.HandleDeleteDiscount),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/discounts/{discountID}", adminDeleteDiscountRoute)
-
-	adminCreateSubscriptionRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(subscriptionHandler.HandleCreateSubscription),
-		),
-	)
-	router.Handle("POST /api/v1/admin/subscriptions", adminCreateSubscriptionRoute)
-
-	adminListSubscriptionsRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(subscriptionHandler.HandleListSubscriptions),
-		),
-	)
-	router.Handle("GET /api/v1/admin/subscriptions", adminListSubscriptionsRoute)
-
-	adminGetSubscriptionByIDRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(subscriptionHandler.HandleGetSubscriptionByID),
-		),
-	)
-	router.Handle("GET /api/v1/admin/subscriptions/{subscriptionID}", adminGetSubscriptionByIDRoute)
-
-	adminUpdateSubscriptionRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(subscriptionHandler.HandleUpdateSubscription),
-		),
-	)
-	router.Handle("PUT /api/v1/admin/subscriptions/{subscriptionID}", adminUpdateSubscriptionRoute)
-
-	adminDeleteSubscriptionRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user")(
-			http.HandlerFunc(subscriptionHandler.HandleDeleteSubscription),
-		),
-	)
-	router.Handle("DELETE /api/v1/admin/subscriptions/{subscriptionID}", adminDeleteSubscriptionRoute)
 }

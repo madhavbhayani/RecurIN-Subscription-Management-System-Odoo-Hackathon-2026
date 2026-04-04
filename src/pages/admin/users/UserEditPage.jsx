@@ -3,11 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import ToastMessage from '../../../components/common/ToastMessage'
 import { getUserById, updateUser } from '../../../services/userApi'
 
-const ROLE_OPTIONS = ['Admin', 'Internal', 'User']
-
 function UserEditPage() {
   const { userId = '' } = useParams()
-
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
@@ -36,8 +33,8 @@ function UserEditPage() {
         setPhoneNumber(String(user?.phone_number ?? ''))
         setAddress(String(user?.address ?? ''))
 
-        const incomingRole = String(user?.role ?? 'User')
-        setRole(ROLE_OPTIONS.includes(incomingRole) ? incomingRole : 'User')
+        const incomingRole = String(user?.role ?? 'User').trim()
+        setRole(incomingRole || 'User')
 
         setActiveSubscriptions(Array.isArray(response?.active_subscriptions) ? response.active_subscriptions : [])
       } catch (error) {
@@ -83,7 +80,6 @@ function UserEditPage() {
         email: normalizedEmail,
         phone_number: normalizedPhoneNumber,
         address: address.trim(),
-        role,
       })
 
       const updatedUser = response?.user
@@ -96,8 +92,8 @@ function UserEditPage() {
         setPhoneNumber(String(updatedUser?.phone_number ?? normalizedPhoneNumber))
         setAddress(String(updatedUser?.address ?? address.trim()))
 
-        const updatedRole = String(updatedUser?.role ?? role)
-        setRole(ROLE_OPTIONS.includes(updatedRole) ? updatedRole : role)
+        const updatedRole = String(updatedUser?.role ?? role).trim()
+        setRole(updatedRole || role)
       }
     } catch (error) {
       setToastVariant('error')
@@ -155,17 +151,18 @@ function UserEditPage() {
               <label htmlFor="user-role" className="block text-sm font-semibold text-[var(--navy)]">
                 Role
               </label>
-              <select
+              <input
                 id="user-role"
                 name="user-role"
+                type="text"
                 value={role}
-                onChange={(event) => setRole(event.target.value)}
-                className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] bg-[var(--white)] px-4 py-3 text-sm text-[var(--navy)] outline-none focus:border-[var(--orange)]"
-              >
-                {ROLE_OPTIONS.map((roleOption) => (
-                  <option key={roleOption} value={roleOption}>{roleOption}</option>
-                ))}
-              </select>
+                readOnly
+                disabled
+                className="w-full rounded-lg border border-[color:rgba(0,0,128,0.16)] bg-[rgba(0,0,128,0.03)] px-4 py-3 text-sm font-semibold text-[color:rgba(0,0,128,0.75)] outline-none"
+              />
+              <p className="text-xs text-[color:rgba(0,0,128,0.62)]">
+                Role is managed from the Roles module and cannot be changed here.
+              </p>
             </div>
           </div>
 

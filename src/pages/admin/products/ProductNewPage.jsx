@@ -5,6 +5,7 @@ import ToastMessage from '../../../components/common/ToastMessage'
 import { listAttributes } from '../../../services/attributeApi'
 import { listDiscounts } from '../../../services/discountApi'
 import { createProduct } from '../../../services/productApi'
+import { listRecurringPlans } from '../../../services/recurringPlanApi'
 import { listTaxes } from '../../../services/taxApi'
 
 const PRODUCT_TYPES = ['Service', 'Goods']
@@ -91,6 +92,26 @@ function buildAttributeOptions(attributes) {
   return options
 }
 
+function buildRecurringPlanOptions(recurringPlans) {
+  return recurringPlans
+    .map((recurringPlan) => {
+      const recurringPlanID = String(recurringPlan?.recurring_plan_id ?? '').trim()
+      const recurringName = String(recurringPlan?.recurring_name ?? '').trim()
+      const billingPeriod = String(recurringPlan?.billing_period ?? '').trim()
+
+      if (!recurringPlanID || !recurringName) {
+        return null
+      }
+
+      const billingLabel = billingPeriod ? ` (${billingPeriod})` : ''
+      return {
+        value: recurringPlanID,
+        label: `${recurringName}${billingLabel}`,
+      }
+    })
+    .filter(Boolean)
+}
+
 function ProductNewPage() {
   const [productName, setProductName] = useState('')
   const [productType, setProductType] = useState('Service')
@@ -99,6 +120,8 @@ function ProductNewPage() {
   const [availableTaxOptions, setAvailableTaxOptions] = useState([])
   const [availableDiscountOptions, setAvailableDiscountOptions] = useState([])
   const [availableAttributeOptions, setAvailableAttributeOptions] = useState([])
+  const [availableRecurringPlanOptions, setAvailableRecurringPlanOptions] = useState([])
+  const [selectedRecurringPlanID, setSelectedRecurringPlanID] = useState('')
   const [selectedTaxIDs, setSelectedTaxIDs] = useState([])
   const [selectedDiscountIDs, setSelectedDiscountIDs] = useState([])
   const [selectedAttributeIDs, setSelectedAttributeIDs] = useState([])
@@ -143,10 +166,11 @@ function ProductNewPage() {
     const loadDependencies = async () => {
       setIsOptionsLoading(true)
       try {
-        const [taxesResponse, discountsResponse, attributesResponse] = await Promise.all([
+        const [taxesResponse, discountsResponse, attributesResponse, recurringPlansResponse] = await Promise.all([
           listTaxes(''),
           listDiscounts(''),
           listAttributes(''),
+          listRecurringPlans('', false),
         ])
 
         if (!isMounted) {
@@ -156,10 +180,14 @@ function ProductNewPage() {
         const taxes = Array.isArray(taxesResponse?.taxes) ? taxesResponse.taxes : []
         const discounts = Array.isArray(discountsResponse?.discounts) ? discountsResponse.discounts : []
         const attributes = Array.isArray(attributesResponse?.attributes) ? attributesResponse.attributes : []
+        const recurringPlans = Array.isArray(recurringPlansResponse?.recurring_plans)
+          ? recurringPlansResponse.recurring_plans
+          : []
 
         setAvailableTaxOptions(buildTaxOptions(taxes))
         setAvailableDiscountOptions(buildDiscountOptions(discounts))
         setAvailableAttributeOptions(buildAttributeOptions(attributes))
+        setAvailableRecurringPlanOptions(buildRecurringPlanOptions(recurringPlans))
       } catch (error) {
         if (!isMounted) {
           return
@@ -170,6 +198,7 @@ function ProductNewPage() {
         setAvailableTaxOptions([])
         setAvailableDiscountOptions([])
         setAvailableAttributeOptions([])
+        setAvailableRecurringPlanOptions([])
       } finally {
         if (isMounted) {
           setIsOptionsLoading(false)
@@ -233,6 +262,7 @@ function ProductNewPage() {
         product_type: productType,
         sales_price: Number(normalizedSalesPrice.toFixed(2)),
         cost_price: Number(normalizedCostPrice.toFixed(2)),
+        recurring_plan_id: selectedRecurringPlanID,
         tax_ids: selectedTaxIDs,
         discount_ids: selectedDiscountIDs,
         variants: variantsPayload,
@@ -245,6 +275,7 @@ function ProductNewPage() {
       setProductType('Service')
       setSalesPrice('')
       setCostPrice('')
+      setSelectedRecurringPlanID('')
       setSelectedTaxIDs([])
       setSelectedDiscountIDs([])
       setSelectedAttributeIDs([])
@@ -301,7 +332,7 @@ function ProductNewPage() {
             />
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-2">
               <label htmlFor="product-type" className="block text-sm font-semibold text-[var(--navy)]">
                 Product Type
@@ -315,6 +346,24 @@ function ProductNewPage() {
               >
                 {PRODUCT_TYPES.map((type) => (
                   <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="recurring-plan" className="block text-sm font-semibold text-[var(--navy)]">
+                Recurring Plan
+              </label>
+              <select
+                id="recurring-plan"
+                name="recurring-plan"
+                value={selectedRecurringPlanID}
+                onChange={(event) => setSelectedRecurringPlanID(event.target.value)}
+                className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] bg-[var(--white)] px-4 py-3 text-sm text-[var(--navy)] outline-none focus:border-[var(--orange)]"
+              >
+                <option value="">No recurring plan</option>
+                {availableRecurringPlanOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </div>

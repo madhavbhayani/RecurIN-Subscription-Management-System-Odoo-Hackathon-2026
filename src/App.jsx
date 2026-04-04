@@ -3,15 +3,19 @@ import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import ShopPage from './pages/ShopPage'
+import CartPage from './pages/CartPage'
 import SignupPage from './pages/SignupPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import SubscriptionPage from './pages/admin/subscription/SubscriptionPage'
 import SubscriptionNewPage from './pages/admin/subscription/SubscriptionNewPage'
 import AdminReportingPage from './pages/admin/AdminReportingPage'
-import AdminRolesPage from './pages/admin/AdminRolesPage'
 import ProductEditPage from './pages/admin/products/ProductEditPage'
 import ProductNewPage from './pages/admin/products/ProductNewPage'
 import ProductsPage from './pages/admin/products/ProductsPage'
+import RoleEditPage from './pages/admin/roles/RoleEditPage'
+import RoleNewPage from './pages/admin/roles/RoleNewPage'
+import RolesPage from './pages/admin/roles/RolesPage'
 import UserEditPage from './pages/admin/users/UserEditPage'
 import UsersPage from './pages/admin/users/UsersPage'
 import AdminConfigurationsPage from './pages/admin/configurations/AdminConfigurationsPage'
@@ -71,7 +75,9 @@ function App() {
           <Route path="reporting" element={<AdminReportingPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="users/:userId" element={<UserEditPage />} />
-          <Route path="roles" element={<AdminRolesPage />} />
+          <Route path="roles" element={<RolesPage />} />
+          <Route path="roles/new" element={<RoleNewPage />} />
+          <Route path="roles/:roleId" element={<RoleEditPage />} />
           <Route path="configurations" element={<AdminConfigurationsPage />} />
           <Route path="configurations/attribute" element={<AttributePage />} />
           <Route path="configurations/attribute/new" element={<AttributeNewPage />} />
@@ -100,12 +106,16 @@ function App() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--light-bg)]">
+    <div className="public-workspace flex min-h-screen flex-col bg-[var(--light-bg)]">
       <Header />
 
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/home" element={<HomePage />} />
+          <Route path="/shop" element={<ShopPage />} />
+          <Route path="/cart" element={<CartPage />} />
+          <Route path="/about" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

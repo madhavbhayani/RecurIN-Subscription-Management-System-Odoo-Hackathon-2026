@@ -130,10 +130,11 @@ function ProductsPage() {
       </div>
 
       <div className="mt-6 overflow-hidden rounded-xl border border-[color:rgba(0,0,128,0.12)]">
-        <div className="grid grid-cols-[1.3fr_1fr_1fr_120px] gap-4 bg-[rgba(0,0,128,0.04)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--navy)]">
+        <div className="grid grid-cols-[1.25fr_1fr_1fr_1.1fr_120px] gap-4 bg-[rgba(0,0,128,0.04)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--navy)]">
           <span>Product Name</span>
           <span>Sales Price</span>
           <span>Cost</span>
+          <span>Recurring Plan</span>
           <span className="text-right">Action</span>
         </div>
 
@@ -148,10 +149,15 @@ function ProductsPage() {
         ) : (
           <div className="divide-y divide-[color:rgba(0,0,128,0.08)]">
             {products.map((product) => (
-              <div key={product.product_id} className="grid grid-cols-[1.3fr_1fr_1fr_120px] gap-4 px-4 py-4 text-sm text-[var(--navy)]">
+              <div key={product.product_id} className="grid grid-cols-[1.25fr_1fr_1fr_1.1fr_120px] gap-4 px-4 py-4 text-sm text-[var(--navy)]">
                 <div className="font-semibold">{product.product_name}</div>
                 <div>{formatPrice(product.sales_price)}</div>
                 <div>{formatPrice(product.cost_price)}</div>
+                <div>
+                  {String(product?.recurring_name ?? '').trim()
+                    ? `${product.recurring_name}${String(product?.billing_period ?? '').trim() ? ` (${product.billing_period})` : ''}`
+                    : '-'}
+                </div>
                 <div className="flex items-center justify-end gap-2">
                   <Link
                     to={`/admin/products/${product.product_id}`}

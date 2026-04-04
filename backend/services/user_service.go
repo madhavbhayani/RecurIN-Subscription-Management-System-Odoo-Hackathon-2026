@@ -44,7 +44,6 @@ type UpdateUserInput struct {
 	Email       string
 	PhoneNumber string
 	Address     string
-	Role        string
 }
 
 // UserService encapsulates user account operations.
@@ -247,7 +246,6 @@ func validateUserUpdateInput(input UpdateUserInput) (UpdateUserInput, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	phoneNumber := normalizePhoneNumber(input.PhoneNumber)
 	address := strings.TrimSpace(input.Address)
-	role, validRole := normalizeUserRole(input.Role)
 
 	if name == "" || email == "" || phoneNumber == "" {
 		return UpdateUserInput{}, ValidationError{Message: "name, email and phone number are required"}
@@ -258,16 +256,12 @@ func validateUserUpdateInput(input UpdateUserInput) (UpdateUserInput, error) {
 	if !isValidE164Phone(phoneNumber) {
 		return UpdateUserInput{}, ValidationError{Message: "phone number must be in valid format, e.g. +919876543210"}
 	}
-	if !validRole {
-		return UpdateUserInput{}, ValidationError{Message: "role must be Admin, Internal or User"}
-	}
 
 	return UpdateUserInput{
 		Name:        name,
 		Email:       email,
 		PhoneNumber: phoneNumber,
 		Address:     address,
-		Role:        string(role),
 	}, nil
 }
 
@@ -402,9 +396,8 @@ func (service *UserService) UpdateUser(ctx context.Context, userID string, input
 			phone_number = $2,
 			address = $3,
 			email = $4,
-			role = $5,
 			updated_at = NOW()
-		WHERE id = $6
+		WHERE id = $5
 		RETURNING id, name, email, phone_number, address, role, created_at, updated_at`
 
 	user, err := scanUser(service.db.QueryRow(
@@ -414,7 +407,6 @@ func (service *UserService) UpdateUser(ctx context.Context, userID string, input
 		validatedInput.PhoneNumber,
 		nullableString(validatedInput.Address),
 		validatedInput.Email,
-		validatedInput.Role,
 		normalizedUserID,
 	))
 	if err != nil {

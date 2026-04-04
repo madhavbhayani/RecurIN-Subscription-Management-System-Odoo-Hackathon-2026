@@ -7,7 +7,7 @@ import RecurInLogo from '../common/RecurInLogo'
 const baseAccountItems = [
   { label: 'Account Options' },
   { label: 'Subscriptions' },
-  { label: 'Cart' },
+  { label: 'Cart', to: '/cart' },
 ]
 
 function isAdminOrInternalRole(role) {
@@ -25,10 +25,10 @@ function Header() {
   const navigate = useNavigate()
 
   const desktopNavLinkClass =
-    "relative inline-flex items-center px-4 py-2 text-lg font-semibold text-[var(--navy)] transition-colors duration-300 hover:text-[var(--orange)] after:absolute after:bottom-1 after:left-4 after:h-0.5 after:w-[calc(100%-2rem)] after:origin-left after:scale-x-0 after:bg-[var(--orange)] after:content-[''] after:transition-transform after:duration-300 after:ease-out hover:after:scale-x-100"
+    "relative inline-flex items-center px-3 py-1.5 text-[15px] font-semibold text-[var(--navy)] transition-colors duration-300 hover:text-[var(--orange)] after:absolute after:bottom-0 after:left-3 after:h-0.5 after:w-[calc(100%-1.5rem)] after:origin-left after:scale-x-0 after:bg-[var(--orange)] after:content-[''] after:transition-transform after:duration-300 after:ease-out hover:after:scale-x-100"
 
   const mobileNavLinkClass =
-    'rounded px-3 py-2 text-base font-semibold text-[var(--navy)] transition-colors duration-300 hover:text-[var(--orange)]'
+    'rounded px-3 py-1.5 text-sm font-semibold text-[var(--navy)] transition-colors duration-300 hover:text-[var(--orange)]'
 
   const toggleMenu = () => {
     setIsMenuOpen((previous) => !previous)
@@ -115,7 +115,7 @@ function Header() {
       return (
         <Link
           to="/login"
-          className="rounded-md bg-[var(--orange)] px-5 py-2 text-lg font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
+          className="rounded-md bg-[var(--orange)] px-4 py-1.5 text-sm font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
         >
           Login
         </Link>
@@ -127,7 +127,7 @@ function Header() {
         <button
           type="button"
           onClick={toggleAccountMenu}
-          className="inline-flex items-center gap-2 rounded-md bg-[var(--orange)] px-5 py-2 text-lg font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
+          className="inline-flex items-center gap-2 rounded-md bg-[var(--orange)] px-4 py-1.5 text-sm font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
           aria-haspopup="menu"
           aria-expanded={isAccountMenuOpen}
         >
@@ -163,7 +163,7 @@ function Header() {
         <Link
           to="/login"
           onClick={closeMenu}
-          className="mt-2 inline-flex w-fit rounded-md bg-[var(--orange)] px-4 py-2 text-base font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
+          className="mt-2 inline-flex w-fit rounded-md bg-[var(--orange)] px-4 py-1.5 text-sm font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
         >
           Login
         </Link>
@@ -211,7 +211,7 @@ function Header() {
 
   return (
     <header className="border-b border-[color:rgba(0,0,128,0.14)] bg-[var(--white)]">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div className="w-full px-2 sm:px-3 lg:px-4">
         <div className="flex items-center justify-between py-4 md:hidden">
           <Link to="/" onClick={closeMenu} aria-label="RecurIN home">
             <RecurInLogo compact taglineClassName="hidden" />
@@ -233,7 +233,7 @@ function Header() {
             <RecurInLogo compact />
           </Link>
 
-          <nav className="flex items-center justify-center gap-1" aria-label="Main navigation">
+          <nav className="flex items-center justify-center gap-0.5" aria-label="Main navigation">
             {navItems.map((item) => (
               <Link key={item.label} to={item.to} className={desktopNavLinkClass}>
                 {item.label}

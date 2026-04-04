@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,13 +24,14 @@ type CreateProductVariantInput struct {
 }
 
 type CreateProductInput struct {
-	ProductName string
-	ProductType string
-	SalesPrice  float64
-	CostPrice   float64
-	TaxIDs      []string
-	DiscountIDs []string
-	Variants    []CreateProductVariantInput
+	ProductName     string
+	ProductType     string
+	SalesPrice      float64
+	CostPrice       float64
+	RecurringPlanID string
+	TaxIDs          []string
+	DiscountIDs     []string
+	Variants        []CreateProductVariantInput
 }
 
 // ProductService encapsulates product operations.
@@ -75,6 +77,8 @@ func validateProductInput(input CreateProductInput) (CreateProductInput, error) 
 	if input.CostPrice < 0 {
 		return CreateProductInput{}, ValidationError{Message: "Cost price cannot be negative."}
 	}
+
+	normalizedRecurringPlanID := strings.TrimSpace(input.RecurringPlanID)
 
 	normalizedTaxIDs := make([]string, 0, len(input.TaxIDs))
 	seenTaxIDs := make(map[string]struct{}, len(input.TaxIDs))
@@ -123,13 +127,14 @@ func validateProductInput(input CreateProductInput) (CreateProductInput, error) 
 	}
 
 	return CreateProductInput{
-		ProductName: productName,
-		ProductType: normalizedType,
-		SalesPrice:  input.SalesPrice,
-		CostPrice:   input.CostPrice,
-		TaxIDs:      normalizedTaxIDs,
-		DiscountIDs: normalizedDiscountIDs,
-		Variants:    normalizedVariants,
+		ProductName:     productName,
+		ProductType:     normalizedType,
+		SalesPrice:      input.SalesPrice,
+		CostPrice:       input.CostPrice,
+		RecurringPlanID: normalizedRecurringPlanID,
+		TaxIDs:          normalizedTaxIDs,
+		DiscountIDs:     normalizedDiscountIDs,
+		Variants:        normalizedVariants,
 	}, nil
 }
 
@@ -151,18 +156,52 @@ func isForeignKeyViolation(err error) bool {
 	return false
 }
 
+func isRecurringPlanForeignKeyViolation(err error) bool {
+	var pgError *pgconn.PgError
+	if errors.As(err, &pgError) {
+		return pgError.Code == "23503" && pgError.ConstraintName == "fk_product_data_recurring_plan"
+	}
+
+	return false
+}
+
+func nullableRecurringPlanID(recurringPlanID string) interface{} {
+	normalizedRecurringPlanID := strings.TrimSpace(recurringPlanID)
+	if normalizedRecurringPlanID == "" {
+		return nil
+	}
+
+	return normalizedRecurringPlanID
+}
+
 func scanProductBaseRow(row pgx.Row) (models.Product, error) {
 	var product models.Product
+	var recurringPlanID sql.NullString
+	var recurringName sql.NullString
+	var billingPeriod sql.NullString
 	if err := row.Scan(
 		&product.ProductID,
 		&product.ProductName,
 		&product.ProductType,
 		&product.SalesPrice,
 		&product.CostPrice,
+		&recurringPlanID,
+		&recurringName,
+		&billingPeriod,
 		&product.CreatedAt,
 		&product.UpdatedAt,
 	); err != nil {
 		return models.Product{}, err
+	}
+
+	if recurringPlanID.Valid {
+		product.RecurringPlanID = recurringPlanID.String
+	}
+	if recurringName.Valid {
+		product.RecurringName = recurringName.String
+	}
+	if billingPeriod.Valid {
+		product.BillingPeriod = billingPeriod.String
 	}
 
 	return product, nil
@@ -352,9 +391,19 @@ func (service *ProductService) CreateProduct(ctx context.Context, input CreatePr
 	}()
 
 	const query = `
-		INSERT INTO products.product_data (product_name, product_type, sales_price, cost_price)
-		VALUES ($1, $2, $3, $4)
-		RETURNING product_id, product_name, product_type, sales_price::float8, cost_price::float8, created_at, updated_at`
+		INSERT INTO products.product_data (product_name, product_type, sales_price, cost_price, recurring_plan_id)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING
+			product_id,
+			product_name,
+			product_type,
+			sales_price::float8,
+			cost_price::float8,
+			recurring_plan_id::text,
+			NULL::text AS recurring_name,
+			NULL::text AS billing_period,
+			created_at,
+			updated_at`
 
 	createdProduct, err := scanProductBaseRow(tx.QueryRow(
 		ctx,
@@ -363,10 +412,14 @@ func (service *ProductService) CreateProduct(ctx context.Context, input CreatePr
 		validatedInput.ProductType,
 		validatedInput.SalesPrice,
 		validatedInput.CostPrice,
+		nullableRecurringPlanID(validatedInput.RecurringPlanID),
 	))
 	if err != nil {
 		if isProductNameUniqueViolation(err) {
 			return models.Product{}, ErrProductAlreadyExists
+		}
+		if isRecurringPlanForeignKeyViolation(err) {
+			return models.Product{}, ValidationError{Message: "Selected recurring plan is invalid."}
 		}
 		return models.Product{}, fmt.Errorf("failed to create product: %w", err)
 	}
@@ -394,10 +447,21 @@ func (service *ProductService) ListProducts(ctx context.Context, search string) 
 	normalizedSearch := strings.TrimSpace(search)
 
 	const query = `
-		SELECT product_id, product_name, product_type, sales_price::float8, cost_price::float8, created_at, updated_at
-		FROM products.product_data
-		WHERE ($1 = '' OR product_name ILIKE '%' || $1 || '%')
-		ORDER BY product_name ASC`
+		SELECT
+			p.product_id,
+			p.product_name,
+			p.product_type,
+			p.sales_price::float8,
+			p.cost_price::float8,
+			p.recurring_plan_id::text,
+			rp.recurring_name,
+			rp.billing_period,
+			p.created_at,
+			p.updated_at
+		FROM products.product_data p
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = p.recurring_plan_id
+		WHERE ($1 = '' OR p.product_name ILIKE '%' || $1 || '%')
+		ORDER BY p.product_name ASC`
 
 	rows, err := service.db.Query(ctx, query, normalizedSearch)
 	if err != nil {
@@ -428,9 +492,20 @@ func (service *ProductService) GetProductByID(ctx context.Context, productID str
 	}
 
 	const query = `
-		SELECT product_id, product_name, product_type, sales_price::float8, cost_price::float8, created_at, updated_at
-		FROM products.product_data
-		WHERE product_id = $1`
+		SELECT
+			p.product_id,
+			p.product_name,
+			p.product_type,
+			p.sales_price::float8,
+			p.cost_price::float8,
+			p.recurring_plan_id::text,
+			rp.recurring_name,
+			rp.billing_period,
+			p.created_at,
+			p.updated_at
+		FROM products.product_data p
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = p.recurring_plan_id
+		WHERE p.product_id = $1`
 
 	product, err := scanProductBaseRow(service.db.QueryRow(ctx, query, normalizedProductID))
 	if err != nil {
@@ -488,9 +563,28 @@ func (service *ProductService) UpdateProduct(ctx context.Context, productID stri
 			product_type = $2,
 			sales_price = $3,
 			cost_price = $4,
+			recurring_plan_id = $5,
 			updated_at = NOW()
-		WHERE product_id = $5
-		RETURNING product_id, product_name, product_type, sales_price::float8, cost_price::float8, created_at, updated_at`
+		WHERE product_id = $6
+		RETURNING
+			product_id,
+			product_name,
+			product_type,
+			sales_price::float8,
+			cost_price::float8,
+			recurring_plan_id::text,
+			(
+				SELECT rp.recurring_name
+				FROM recurring_plans.recurring_plan_data rp
+				WHERE rp.recurring_plan_id = products.product_data.recurring_plan_id
+			) AS recurring_name,
+			(
+				SELECT rp.billing_period
+				FROM recurring_plans.recurring_plan_data rp
+				WHERE rp.recurring_plan_id = products.product_data.recurring_plan_id
+			) AS billing_period,
+			created_at,
+			updated_at`
 
 	if _, err := scanProductBaseRow(tx.QueryRow(
 		ctx,
@@ -499,6 +593,7 @@ func (service *ProductService) UpdateProduct(ctx context.Context, productID stri
 		validatedInput.ProductType,
 		validatedInput.SalesPrice,
 		validatedInput.CostPrice,
+		nullableRecurringPlanID(validatedInput.RecurringPlanID),
 		normalizedProductID,
 	)); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -506,6 +601,9 @@ func (service *ProductService) UpdateProduct(ctx context.Context, productID stri
 		}
 		if isProductNameUniqueViolation(err) {
 			return models.Product{}, ErrProductAlreadyExists
+		}
+		if isRecurringPlanForeignKeyViolation(err) {
+			return models.Product{}, ValidationError{Message: "Selected recurring plan is invalid."}
 		}
 		return models.Product{}, fmt.Errorf("failed to update product: %w", err)
 	}
