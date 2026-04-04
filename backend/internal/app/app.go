@@ -56,6 +56,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	attributeService := services.NewAttributeService(dbPool)
 	taxService := services.NewTaxService(dbPool)
 	productService := services.NewProductService(dbPool)
+	cartService := services.NewCartService(dbPool)
 	recurringPlanService := services.NewRecurringPlanService(dbPool)
 	quotationService := services.NewQuotationService(dbPool)
 	paymentTermService := services.NewPaymentTermService(dbPool)
@@ -73,7 +74,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	subscriptionService := services.NewSubscriptionService(dbPool, quoteNotifier)
 
 	router := http.NewServeMux()
-	registerRoutes(router, dbPool, tokenManager, workerPool, userService, attributeService, taxService, productService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
+	registerRoutes(router, dbPool, tokenManager, workerPool, userService, attributeService, taxService, productService, cartService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
@@ -115,6 +116,7 @@ func registerRoutes(
 	attributeService *services.AttributeService,
 	taxService *services.TaxService,
 	productService *services.ProductService,
+	cartService *services.CartService,
 	recurringPlanService *services.RecurringPlanService,
 	quotationService *services.QuotationService,
 	paymentTermService *services.PaymentTermService,
@@ -128,6 +130,7 @@ func registerRoutes(
 	attributeHandler := handlers.NewAttributeHandler(attributeService)
 	taxHandler := handlers.NewTaxHandler(taxService)
 	productHandler := handlers.NewProductHandler(productService)
+	cartHandler := handlers.NewCartHandler(cartService)
 	recurringPlanHandler := handlers.NewRecurringPlanHandler(recurringPlanService)
 	quotationHandler := handlers.NewQuotationHandler(quotationService)
 	paymentTermHandler := handlers.NewPaymentTermHandler(paymentTermService)
@@ -164,6 +167,13 @@ func registerRoutes(
 			http.HandlerFunc(authHandler.HandleWhoAmI),
 		),
 	)
+	authenticatedCartRoute := func(handler http.Handler) http.Handler {
+		return auth.AuthMiddleware(tokenManager)(
+			rbac.RequireRoles("admin", "internal-user", "user", "portal-user")(
+				handler,
+			),
+		)
+	}
 	router.Handle("GET /api/v1/auth/me", authenticatedRoute)
 
 	router.Handle("GET /api/v1/admin/ping", adminRoleRoute(http.HandlerFunc(authHandler.HandleAdminPing)))
@@ -250,6 +260,23 @@ func registerRoutes(
 	router.Handle(
 		"DELETE /api/v1/admin/products/{productID}",
 		adminPermissionRoute(rbac.ResourceProducts, rbac.PermissionActionDelete, http.HandlerFunc(productHandler.HandleDeleteProduct)),
+	)
+
+	router.Handle(
+		"GET /api/v1/cart/items",
+		authenticatedCartRoute(http.HandlerFunc(cartHandler.HandleListCartItems)),
+	)
+	router.Handle(
+		"POST /api/v1/cart/items",
+		authenticatedCartRoute(http.HandlerFunc(cartHandler.HandleAddCartItem)),
+	)
+	router.Handle(
+		"PATCH /api/v1/cart/items/{cartItemID}",
+		authenticatedCartRoute(http.HandlerFunc(cartHandler.HandleUpdateCartItem)),
+	)
+	router.Handle(
+		"DELETE /api/v1/cart/items/{cartItemID}",
+		authenticatedCartRoute(http.HandlerFunc(cartHandler.HandleDeleteCartItem)),
 	)
 
 	router.Handle(

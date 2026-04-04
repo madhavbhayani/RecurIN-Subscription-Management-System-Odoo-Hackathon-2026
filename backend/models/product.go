@@ -29,8 +29,9 @@ type ProductTax struct {
 
 // ProductVariant references an attribute selected for a product.
 type ProductVariant struct {
-	AttributeID   string `json:"attribute_id"`
-	AttributeName string `json:"attribute_name"`
+	AttributeID       string  `json:"attribute_id"`
+	AttributeName     string  `json:"attribute_name"`
+	DefaultExtraPrice float64 `json:"default_extra_price"`
 }
 
 // ProductDiscount references a discount assigned to a product.
