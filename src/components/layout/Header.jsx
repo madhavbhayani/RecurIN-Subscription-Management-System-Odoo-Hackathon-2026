@@ -6,7 +6,7 @@ import RecurInLogo from '../common/RecurInLogo'
 
 const baseAccountItems = [
   { label: 'Account Options' },
-  { label: 'Subscriptions' },
+  { label: 'Subscriptions', to: '/subscription' },
   { label: 'Cart', to: '/cart' },
 ]
 

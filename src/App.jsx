@@ -9,6 +9,7 @@ import CartPage from './pages/CartPage'
 import CheckoutPage from './pages/CheckoutPage'
 import CheckoutSuccessPage from './pages/CheckoutSuccessPage'
 import SignupPage from './pages/SignupPage'
+import MySubscriptionPage from './pages/MySubscriptionPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import SubscriptionPage from './pages/admin/subscription/SubscriptionPage'
 import SubscriptionNewPage from './pages/admin/subscription/SubscriptionNewPage'
@@ -121,7 +122,8 @@ function App() {
           <Route path="/cart" element={<CartPage />} />
           <Route path="/check-out" element={<CheckoutPage />} />
           <Route path="/sucess" element={<CheckoutSuccessPage />} />
-          <Route path="/success" element={<Navigate to="/sucess" replace />} />
+          <Route path="/success" element={<Navigate to={`/sucess${location.search}`} replace />} />
+          <Route path="/subscription" element={<MySubscriptionPage />} />
           <Route path="/about" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />

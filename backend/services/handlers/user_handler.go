@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/models"
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/services"
@@ -208,6 +209,42 @@ func (handler *UserHandler) HandleGetMyProfile(writer http.ResponseWriter, reque
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"user": buildAdminUserResponse(user),
+	})
+}
+
+func (handler *UserHandler) HandleListMySubscriptions(writer http.ResponseWriter, request *http.Request) {
+	userID, ok := getAuthenticatedUserID(request)
+	if !ok {
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userSubscriptions, err := handler.userService.ListPortalSubscriptionsDetailedByUserID(request.Context(), userID)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+
+	activeSubscriptionItems := make([]map[string]interface{}, 0)
+	quotationSubscriptionItems := make([]map[string]interface{}, 0)
+
+	for _, userSubscription := range userSubscriptions {
+		item := buildSubscriptionResponse(userSubscription)
+		normalizedStatus := strings.ToLower(strings.TrimSpace(string(userSubscription.Status)))
+
+		if normalizedStatus == "active" || normalizedStatus == "confirmed" {
+			activeSubscriptionItems = append(activeSubscriptionItems, item)
+			continue
+		}
+
+		if normalizedStatus == "draft" || strings.Contains(normalizedStatus, "quotation") {
+			quotationSubscriptionItems = append(quotationSubscriptionItems, item)
+		}
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"active_subscriptions":    activeSubscriptionItems,
+		"quotation_subscriptions": quotationSubscriptionItems,
 	})
 }
 

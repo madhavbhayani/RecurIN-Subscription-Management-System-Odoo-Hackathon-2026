@@ -73,6 +73,12 @@ export function createPayPalCheckoutOrder() {
   })
 }
 
+export function listMySubscriptions() {
+  return requestWithAuth('/api/v1/users/me/subscriptions', {
+    method: 'GET',
+  })
+}
+
 export function capturePayPalCheckoutOrder(capturePayload) {
   const normalizedPayload = typeof capturePayload === 'string'
     ? { order_id: capturePayload }

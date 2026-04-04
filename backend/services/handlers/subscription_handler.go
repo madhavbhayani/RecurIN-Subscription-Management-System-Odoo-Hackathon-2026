@@ -286,6 +286,23 @@ func buildSubscriptionResponse(subscription models.Subscription) map[string]inte
 		}
 	}
 
+	var payment map[string]interface{}
+	if subscription.Payment != nil {
+		payment = map[string]interface{}{
+			"payment_id":        subscription.Payment.PaymentID,
+			"invoice_number":    subscription.Payment.InvoiceNumber,
+			"paypal_payment_id": subscription.Payment.PayPalPaymentID,
+			"paypal_payer_id":   subscription.Payment.PayPalPayerID,
+			"paypal_capture_id": subscription.Payment.PayPalCaptureID,
+			"paypal_status":     subscription.Payment.PayPalStatus,
+			"payment_amount":    subscription.Payment.PaymentAmount,
+			"payment_currency":  subscription.Payment.PaymentCurrency,
+			"payment_method":    subscription.Payment.PaymentMethod,
+			"payment_date":      subscription.Payment.PaymentDate.UTC().Format("2006-01-02T15:04:05Z07:00"),
+			"raw_payload":       subscription.Payment.RawPayload,
+		}
+	}
+
 	return map[string]interface{}{
 		"subscription_id":     subscription.SubscriptionID,
 		"subscription_number": subscription.SubscriptionNumber,
@@ -300,6 +317,7 @@ func buildSubscriptionResponse(subscription models.Subscription) map[string]inte
 		"quotation_id":        subscription.QuotationID,
 		"products":            products,
 		"other_info":          otherInfo,
+		"payment":             payment,
 		"status":              string(subscription.Status),
 		"created_at":          subscription.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 		"updated_at":          subscription.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),

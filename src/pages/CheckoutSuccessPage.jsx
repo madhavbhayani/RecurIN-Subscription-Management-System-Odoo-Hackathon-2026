@@ -1,65 +1,120 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { capturePayPalCheckoutOrder } from '../services/checkoutApi'
 import { getAuthSession } from '../services/session'
 
-function formatCurrency(value, currency = 'USD') {
+const CHECKOUT_SNAPSHOT_KEY = 'recurin_checkout_snapshot'
+
+function decodePayPalParam(rawValue) {
+  let value = String(rawValue ?? '').trim()
+  if (!value) {
+    return ''
+  }
+
+  for (let index = 0; index < 2; index += 1) {
+    try {
+      const decoded = decodeURIComponent(value)
+      if (decoded === value) {
+        break
+      }
+      value = decoded
+    } catch {
+      break
+    }
+  }
+
+  return value
+}
+
+function readCheckoutSnapshot() {
+  try {
+    const snapshotText = sessionStorage.getItem(CHECKOUT_SNAPSHOT_KEY)
+    if (!snapshotText) {
+      return null
+    }
+
+    const parsedSnapshot = JSON.parse(snapshotText)
+    return parsedSnapshot && typeof parsedSnapshot === 'object' ? parsedSnapshot : null
+  } catch {
+    return null
+  }
+}
+
+function formatInrCurrency(value) {
   const numericValue = Number(value)
-  const normalizedCurrency = String(currency || 'USD').trim().toUpperCase()
   if (!Number.isFinite(numericValue)) {
-    return `${normalizedCurrency} 0.00`
+    return 'INR 0.00'
   }
 
   try {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: normalizedCurrency,
+      currency: 'INR',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(numericValue)
   } catch {
-    return `${normalizedCurrency} ${numericValue.toFixed(2)}`
+    return `INR ${numericValue.toFixed(2)}`
   }
 }
 
 function CheckoutSuccessPage() {
   const [searchParams] = useSearchParams()
-  const [isLoading, setIsLoading] = useState(false)
-  const [errorMessage, setErrorMessage] = useState('')
   const [payment, setPayment] = useState(null)
+  const [displayedAt] = useState(() => new Date())
+  const checkoutSnapshotRef = useRef(readCheckoutSnapshot())
+  const hasCapturedRef = useRef(false)
 
   const hasSession = Boolean(getAuthSession()?.token)
-  const orderID = String(searchParams.get('token') ?? '').trim()
-  const paymentID = String(searchParams.get('paymentId') ?? searchParams.get('paymentID') ?? '').trim()
-  const payerID = String(searchParams.get('PayerID') ?? searchParams.get('payerId') ?? '').trim()
+  const orderID = decodePayPalParam(searchParams.get('token'))
+  const paymentID = decodePayPalParam(searchParams.get('paymentId') ?? searchParams.get('paymentID'))
+  const payerID = decodePayPalParam(searchParams.get('PayerID') ?? searchParams.get('payerId'))
+  const invoiceNumber = String(
+    payment?.capture_id
+      ?? payment?.order_id
+      ?? paymentID
+      ?? orderID
+      ?? ''
+  ).trim()
+  const checkedOutAmount = Number(checkoutSnapshotRef.current?.amount_inr)
+  const amountInINR = Number.isFinite(checkedOutAmount) ? checkedOutAmount : Number(payment?.amount)
+
+  const handleDownloadInvoice = () => {
+    const invoiceLines = [
+      'RecurIN Payment Invoice',
+      `Invoice Number: ${invoiceNumber || '-'}`,
+      `Order ID: ${payment?.order_id || orderID || paymentID || '-'}`,
+      'Status: COMPLETED',
+      `Amount (INR): ${formatInrCurrency(amountInINR)}`,
+      `Payment Date: ${displayedAt.toLocaleString()}`,
+    ]
+
+    const invoiceBlob = new Blob([`${invoiceLines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' })
+    const invoiceURL = URL.createObjectURL(invoiceBlob)
+    const anchor = document.createElement('a')
+    anchor.href = invoiceURL
+    anchor.download = `Invoice-${invoiceNumber || 'RecurIN'}.txt`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(invoiceURL)
+  }
 
   useEffect(() => {
+    if (hasCapturedRef.current) {
+      return
+    }
+    hasCapturedRef.current = true
+
     let isMounted = true
 
     const capturePayment = async () => {
       if (!hasSession) {
-        setErrorMessage('Please log in to complete payment confirmation.')
         return
       }
 
-      setIsLoading(true)
-      setErrorMessage('')
-
       try {
-        if (!orderID && paymentID && !payerID) {
-          setPayment({
-            order_id: paymentID,
-            capture_id: '',
-            status: 'PENDING',
-            amount: 0,
-            currency: 'USD',
-            payer_email: '',
-          })
-          return
-        }
-
         if (!orderID && !paymentID) {
-          setErrorMessage('Missing PayPal order reference in return URL.')
           return
         }
 
@@ -77,12 +132,6 @@ function CheckoutSuccessPage() {
         if (!isMounted) {
           return
         }
-
-        setErrorMessage(error.message)
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
       }
     }
 
@@ -98,36 +147,35 @@ function CheckoutSuccessPage() {
       <section className="rounded-2xl border border-[color:rgba(0,0,128,0.14)] bg-[var(--white)] p-6 shadow-[0_8px_24px_rgba(0,0,128,0.08)] sm:p-8">
         <h1 className="text-3xl font-bold text-[var(--navy)] sm:text-4xl">Payment Status</h1>
         <p className="mt-2 text-sm text-[color:rgba(0,0,128,0.78)] sm:text-base">
-          We are verifying your PayPal payment and updating your order details.
+          Your PayPal checkout has been completed and the invoice is ready.
         </p>
 
         {!hasSession ? (
           <div className="mt-6 rounded-xl border border-[color:rgba(0,0,128,0.14)] bg-[rgba(0,0,128,0.03)] px-4 py-5 text-sm text-[var(--navy)]">
             Please log in first.
           </div>
-        ) : isLoading ? (
-          <div className="mt-6 rounded-xl border border-[color:rgba(0,0,128,0.12)] px-4 py-6 text-sm text-[color:rgba(0,0,128,0.66)]">
-            Capturing PayPal payment...
-          </div>
-        ) : errorMessage ? (
-          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-5 text-sm text-red-700">
-            {errorMessage}
-          </div>
         ) : (
           <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-800">
             <p className="text-base font-bold">Payment completed successfully.</p>
 
             <div className="mt-3 space-y-1 text-sm">
-              <p><span className="font-semibold">Order ID:</span> {payment?.order_id || '-'}</p>
-              <p><span className="font-semibold">Capture ID:</span> {payment?.capture_id || '-'}</p>
-              <p><span className="font-semibold">Status:</span> {payment?.status || '-'}</p>
-              <p><span className="font-semibold">Amount:</span> {formatCurrency(payment?.amount, payment?.currency)}</p>
-              <p><span className="font-semibold">Payer Email:</span> {payment?.payer_email || '-'}</p>
+              <p><span className="font-semibold">Invoice Number:</span> {invoiceNumber || '-'}</p>
+              <p><span className="font-semibold">Order ID:</span> {payment?.order_id || orderID || paymentID || '-'}</p>
+              <p><span className="font-semibold">Status:</span> COMPLETED</p>
+              <p><span className="font-semibold">Amount:</span> {formatInrCurrency(amountInINR)}</p>
+              <p><span className="font-semibold">Payment Date:</span> {displayedAt.toLocaleString()}</p>
             </div>
           </div>
         )}
 
         <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleDownloadInvoice}
+            className="inline-flex h-10 items-center rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 text-sm font-semibold text-[var(--navy)] transition-colors duration-300 hover:border-[var(--orange)] hover:text-[var(--orange)]"
+          >
+            Download Invoice
+          </button>
           <Link
             to="/shop"
             className="inline-flex h-10 items-center rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 text-sm font-semibold text-[var(--navy)] transition-colors duration-300 hover:border-[var(--orange)] hover:text-[var(--orange)]"

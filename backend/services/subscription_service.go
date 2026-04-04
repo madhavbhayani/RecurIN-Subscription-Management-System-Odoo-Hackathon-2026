@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -930,6 +931,13 @@ func (service *SubscriptionService) ListSubscriptions(ctx context.Context, searc
 		if scanErr != nil {
 			return nil, fmt.Errorf("failed to scan subscription row: %w", scanErr)
 		}
+
+		payment, paymentErr := fetchLatestSubscriptionPayment(ctx, service.db, subscription.SubscriptionID)
+		if paymentErr != nil {
+			return nil, paymentErr
+		}
+		subscription.Payment = payment
+
 		subscriptions = append(subscriptions, subscription)
 	}
 
@@ -1095,6 +1103,63 @@ func fetchSubscriptionOtherInfo(
 	return &otherInfo, nil
 }
 
+func fetchLatestSubscriptionPayment(
+	ctx context.Context,
+	querier subscriptionQuerier,
+	subscriptionID string,
+) (*models.SubscriptionPayment, error) {
+	const query = `
+		SELECT
+			payment_id,
+			invoice_number,
+			paypal_payment_id,
+			paypal_payer_id,
+			paypal_capture_id,
+			paypal_status,
+			payment_amount::float8,
+			payment_currency,
+			payment_method,
+			payment_date,
+			raw_payload
+		FROM users.payments
+		WHERE subscription_id = $1
+		ORDER BY payment_date DESC
+		LIMIT 1`
+
+	var payment models.SubscriptionPayment
+	var rawPayload []byte
+	if err := querier.QueryRow(ctx, query, subscriptionID).Scan(
+		&payment.PaymentID,
+		&payment.InvoiceNumber,
+		&payment.PayPalPaymentID,
+		&payment.PayPalPayerID,
+		&payment.PayPalCaptureID,
+		&payment.PayPalStatus,
+		&payment.PaymentAmount,
+		&payment.PaymentCurrency,
+		&payment.PaymentMethod,
+		&payment.PaymentDate,
+		&rawPayload,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		if strings.Contains(strings.ToLower(err.Error()), `relation "users.payments" does not exist`) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to fetch latest subscription payment: %w", err)
+	}
+
+	if len(rawPayload) > 0 {
+		payload := make(map[string]interface{})
+		if err := json.Unmarshal(rawPayload, &payload); err == nil {
+			payment.RawPayload = payload
+		}
+	}
+
+	return &payment, nil
+}
+
 func (service *SubscriptionService) GetSubscriptionByID(ctx context.Context, subscriptionID string) (models.Subscription, error) {
 	normalizedSubscriptionID := strings.TrimSpace(subscriptionID)
 	if normalizedSubscriptionID == "" {
@@ -1140,8 +1205,14 @@ func (service *SubscriptionService) GetSubscriptionByID(ctx context.Context, sub
 		return models.Subscription{}, err
 	}
 
+	payment, err := fetchLatestSubscriptionPayment(ctx, service.db, normalizedSubscriptionID)
+	if err != nil {
+		return models.Subscription{}, err
+	}
+
 	subscription.Products = products
 	subscription.OtherInfo = otherInfo
+	subscription.Payment = payment
 
 	return subscription, nil
 }

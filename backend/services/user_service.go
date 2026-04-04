@@ -378,6 +378,125 @@ func (service *UserService) ListActiveSubscriptionsByUserID(ctx context.Context,
 	return items, nil
 }
 
+func (service *UserService) ListPortalSubscriptionsByUserID(ctx context.Context, userID string) ([]models.UserSubscriptionSummary, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return nil, ValidationError{Message: "User ID is required."}
+	}
+
+	const query = `
+		SELECT
+			s.subscription_id,
+			s.subscription_number,
+			s.next_invoice_date,
+			rp.billing_period,
+			rp.recurring_name,
+			s.status
+		FROM subscription.subscriptions s
+		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		WHERE s.customer_id = $1
+		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed')
+		ORDER BY s.updated_at DESC, s.created_at DESC`
+
+	rows, err := service.db.Query(ctx, query, normalizedUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list portal subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.UserSubscriptionSummary, 0)
+	for rows.Next() {
+		var item models.UserSubscriptionSummary
+		if err := rows.Scan(
+			&item.SubscriptionID,
+			&item.SubscriptionNumber,
+			&item.NextInvoiceDate,
+			&item.Recurring,
+			&item.Plan,
+			&item.Status,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan portal subscription row: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating portal subscriptions: %w", err)
+	}
+
+	return items, nil
+}
+
+func (service *UserService) ListPortalSubscriptionsDetailedByUserID(ctx context.Context, userID string) ([]models.Subscription, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return nil, ValidationError{Message: "User ID is required."}
+	}
+
+	const query = `
+		SELECT
+			s.subscription_id,
+			s.subscription_number,
+			s.customer_id,
+			s.customer_name,
+			s.next_invoice_date,
+			rp.billing_period AS recurring,
+			rp.recurring_name AS plan,
+			s.recurring_plan_id,
+			s.payment_term_id,
+			pt.payment_term_name,
+			s.quotation_id,
+			s.status,
+			s.created_at,
+			s.updated_at
+		FROM subscription.subscriptions s
+		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = s.payment_term_id
+		WHERE s.customer_id = $1
+		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed')
+		ORDER BY s.updated_at DESC, s.created_at DESC`
+
+	rows, err := service.db.Query(ctx, query, normalizedUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list portal subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	subscriptions := make([]models.Subscription, 0)
+	for rows.Next() {
+		subscription, scanErr := scanSubscriptionRow(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan portal subscription row: %w", scanErr)
+		}
+
+		products, productErr := fetchSubscriptionProducts(ctx, service.db, subscription.SubscriptionID)
+		if productErr != nil {
+			return nil, productErr
+		}
+
+		otherInfo, otherInfoErr := fetchSubscriptionOtherInfo(ctx, service.db, subscription.SubscriptionID)
+		if otherInfoErr != nil {
+			return nil, otherInfoErr
+		}
+
+		payment, paymentErr := fetchLatestSubscriptionPayment(ctx, service.db, subscription.SubscriptionID)
+		if paymentErr != nil {
+			return nil, paymentErr
+		}
+
+		subscription.Products = products
+		subscription.OtherInfo = otherInfo
+		subscription.Payment = payment
+		subscriptions = append(subscriptions, subscription)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating portal subscriptions: %w", err)
+	}
+
+	return subscriptions, nil
+}
+
 func (service *UserService) UpdateUser(ctx context.Context, userID string, input UpdateUserInput) (models.User, error) {
 	normalizedUserID := strings.TrimSpace(userID)
 	if normalizedUserID == "" {

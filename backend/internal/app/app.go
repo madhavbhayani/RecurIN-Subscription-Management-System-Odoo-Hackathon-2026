@@ -179,6 +179,7 @@ func registerRoutes(
 	}
 	router.Handle("GET /api/v1/auth/me", authenticatedRoute)
 	router.Handle("GET /api/v1/users/me", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleGetMyProfile)))
+	router.Handle("GET /api/v1/users/me/subscriptions", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleListMySubscriptions)))
 	router.Handle("PATCH /api/v1/users/me/address", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleUpdateMyAddress)))
 
 	router.Handle("GET /api/v1/admin/ping", adminRoleRoute(http.HandlerFunc(authHandler.HandleAdminPing)))

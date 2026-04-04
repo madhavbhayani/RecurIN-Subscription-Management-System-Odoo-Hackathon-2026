@@ -26,9 +26,25 @@ type Subscription struct {
 	QuotationID        *string                `json:"quotation_id,omitempty"`
 	Products           []SubscriptionProduct  `json:"products,omitempty"`
 	OtherInfo          *SubscriptionOtherInfo `json:"other_info,omitempty"`
+	Payment            *SubscriptionPayment   `json:"payment,omitempty"`
 	Status             SubscriptionStatus     `json:"status"`
 	CreatedAt          time.Time              `json:"created_at"`
 	UpdatedAt          time.Time              `json:"updated_at"`
+}
+
+// SubscriptionPayment stores latest payment details tied to a subscription.
+type SubscriptionPayment struct {
+	PaymentID       string                 `json:"payment_id"`
+	InvoiceNumber   string                 `json:"invoice_number"`
+	PayPalPaymentID string                 `json:"paypal_payment_id"`
+	PayPalPayerID   *string                `json:"paypal_payer_id,omitempty"`
+	PayPalCaptureID *string                `json:"paypal_capture_id,omitempty"`
+	PayPalStatus    string                 `json:"paypal_status"`
+	PaymentAmount   float64                `json:"payment_amount"`
+	PaymentCurrency string                 `json:"payment_currency"`
+	PaymentMethod   string                 `json:"payment_method"`
+	PaymentDate     time.Time              `json:"payment_date"`
+	RawPayload      map[string]interface{} `json:"raw_payload,omitempty"`
 }
 
 // SubscriptionProduct stores product rows attached to a subscription.

@@ -9,6 +9,8 @@ import {
 } from '../services/checkoutApi'
 import { getAuthSession } from '../services/session'
 
+const CHECKOUT_SNAPSHOT_KEY = 'recurin_checkout_snapshot'
+
 function formatUsdCurrency(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
@@ -128,6 +130,17 @@ function CheckoutPage() {
 
       if (!approvalURL) {
         throw new Error('Unable to start PayPal checkout. Please try again.')
+      }
+
+      try {
+        const checkoutSnapshot = {
+          amount_inr: Number(cartTotal.toFixed(2)),
+          item_count: cartItems.length,
+          created_at: new Date().toISOString(),
+        }
+        sessionStorage.setItem(CHECKOUT_SNAPSHOT_KEY, JSON.stringify(checkoutSnapshot))
+      } catch {
+        // Ignore storage failures and continue checkout.
       }
 
       window.location.assign(approvalURL)

@@ -241,6 +241,26 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 	}
 
 	if strings.EqualFold(captureStatus, "COMPLETED") {
+		// Persist the captured payment and create subscriptions
+		rawPayload, marshalErr := json.Marshal(responsePayload)
+		if marshalErr != nil {
+			return PayPalCaptureOrderResult{}, fmt.Errorf("failed to encode paypal payment result: %w", marshalErr)
+		}
+
+		if persistErr := service.persistCapturedPayment(
+			ctx,
+			normalizedUserID,
+			strings.TrimSpace(responsePayload.ID),
+			"", // payerID is not available in modern orders API
+			strings.TrimSpace(capture.ID),
+			captureStatus,
+			amountValue,
+			strings.TrimSpace(capture.Amount.CurrencyCode),
+			rawPayload,
+		); persistErr != nil {
+			return PayPalCaptureOrderResult{}, persistErr
+		}
+
 		if err := service.cartService.ClearCart(ctx, normalizedUserID); err != nil {
 			return PayPalCaptureOrderResult{}, err
 		}
@@ -393,8 +413,13 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 	}
 
 	if strings.EqualFold(status, "approved") || strings.EqualFold(status, "completed") {
-		if clearErr := service.cartService.ClearCart(ctx, userID); clearErr != nil {
-			return PayPalCaptureOrderResult{}, clearErr
+		rawPayload, marshalErr := json.Marshal(responsePayload)
+		if marshalErr != nil {
+			return PayPalCaptureOrderResult{}, fmt.Errorf("failed to encode paypal payment result: %w", marshalErr)
+		}
+
+		if persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, captureID, status, amountValue, currency, rawPayload); persistErr != nil {
+			return PayPalCaptureOrderResult{}, persistErr
 		}
 	}
 
@@ -409,7 +434,7 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 }
 
 func (service *PayPalService) buildSandboxXClickURL(paymentID string, amount float64, itemName string) string {
-	returnURL := fmt.Sprintf("%s/success?paymentId=%s&orderId=%s", service.frontendBaseURL, url.QueryEscape(paymentID), url.QueryEscape(paymentID))
+	returnURL := fmt.Sprintf("%s/success?paymentId=%s&orderId=%s", service.frontendBaseURL, paymentID, paymentID)
 	cancelReturnURL := service.frontendBaseURL + "/check-out"
 
 	query := url.Values{}
