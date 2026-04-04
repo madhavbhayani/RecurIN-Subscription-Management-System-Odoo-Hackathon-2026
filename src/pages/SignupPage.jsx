@@ -1,18 +1,86 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { countryCodeOptions } from '../constants/countryCodes'
+import { signupUser } from '../services/authApi'
+import AuthToast from '../components/common/AuthToast'
+
+const DOMAIN_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.com$/
+const TEN_DIGIT_PHONE_REGEX = /^\d{10}$/
 
 function SignupPage() {
+  const navigate = useNavigate()
+
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [countryCode, setCountryCode] = useState('+91')
+  const [toastMessage, setToastMessage] = useState('')
+  const [toastVariant, setToastVariant] = useState('error')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handlePhoneChange = (event) => {
     const digitsOnly = event.target.value.replace(/\D/g, '').slice(0, 10)
     setPhoneNumber(digitsOnly)
   }
 
-  const handleSignupSubmit = (event) => {
+  const handleSignupSubmit = async (event) => {
     event.preventDefault()
+
+    setToastMessage('')
+
+    if (name.trim() === '') {
+      setToastVariant('error')
+      setToastMessage('Please enter your name.')
+      return
+    }
+    if (!DOMAIN_EMAIL_REGEX.test(email.trim())) {
+      setToastVariant('error')
+      setToastMessage('Please enter email in this format: name@domain.com')
+      return
+    }
+    if (password.trim().length < 8) {
+      setToastVariant('error')
+      setToastMessage('Password must be at least 8 characters.')
+      return
+    }
+    if (password !== confirmPassword) {
+      setToastVariant('error')
+      setToastMessage('Password and re-enter password must match.')
+      return
+    }
+    if (!TEN_DIGIT_PHONE_REGEX.test(phoneNumber)) {
+      setToastVariant('error')
+      setToastMessage('Phone number must be exactly 10 digits.')
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      await signupUser({
+        name,
+        email,
+        password,
+        country_code: countryCode,
+        phone_number: phoneNumber,
+      })
+
+      setToastVariant('success')
+      setToastMessage('Account created successfully. Please login to continue.')
+      navigate('/login', {
+        state: {
+          toastVariant: 'success',
+          toastMessage: 'Account created successfully. Please login to continue.',
+        },
+      })
+    } catch (error) {
+      setToastVariant('error')
+      setToastMessage(error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -25,7 +93,9 @@ function SignupPage() {
           Join RecurIN to manage all subscriptions in one place.
         </p>
 
-        <form className="mt-8 space-y-5" onSubmit={handleSignupSubmit}>
+        <AuthToast message={toastMessage} variant={toastVariant} />
+
+        <form className="mt-8 space-y-5" onSubmit={handleSignupSubmit} noValidate>
           <div className="space-y-2">
             <label htmlFor="full-name" className="block text-sm font-semibold text-[var(--navy)]">
               Name
@@ -36,6 +106,8 @@ function SignupPage() {
               type="text"
               required
               autoComplete="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
               placeholder="Enter your full name"
               className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 py-3 text-base text-[var(--navy)] outline-none placeholder:text-[color:rgba(0,0,128,0.45)] focus:border-[var(--orange)]"
             />
@@ -51,9 +123,44 @@ function SignupPage() {
               type="email"
               required
               autoComplete="email"
-              pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.com$"
-              title="Please enter a valid email in the format name@domain.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="name@domain.com"
+              className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 py-3 text-base text-[var(--navy)] outline-none placeholder:text-[color:rgba(0,0,128,0.45)] focus:border-[var(--orange)]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="signup-password" className="block text-sm font-semibold text-[var(--navy)]">
+              Password
+            </label>
+            <input
+              id="signup-password"
+              name="signup-password"
+              type="password"
+              required
+              autoComplete="new-password"
+              minLength={8}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Minimum 8 characters"
+              className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 py-3 text-base text-[var(--navy)] outline-none placeholder:text-[color:rgba(0,0,128,0.45)] focus:border-[var(--orange)]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="signup-confirm-password" className="block text-sm font-semibold text-[var(--navy)]">
+              Re-enter Password
+            </label>
+            <input
+              id="signup-confirm-password"
+              name="signup-confirm-password"
+              type="password"
+              required
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              placeholder="Re-enter your password"
               className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 py-3 text-base text-[var(--navy)] outline-none placeholder:text-[color:rgba(0,0,128,0.45)] focus:border-[var(--orange)]"
             />
           </div>
@@ -88,8 +195,6 @@ function SignupPage() {
                 value={phoneNumber}
                 onChange={handlePhoneChange}
                 maxLength={10}
-                pattern="^\\d{10}$"
-                title="Phone number must be exactly 10 digits"
                 placeholder="10-digit number"
                 className="w-full rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 py-3 text-base text-[var(--navy)] outline-none placeholder:text-[color:rgba(0,0,128,0.45)] focus:border-[var(--orange)]"
               />
@@ -98,9 +203,10 @@ function SignupPage() {
 
           <button
             type="submit"
+            disabled={isSubmitting}
             className="w-full rounded-lg bg-[var(--orange)] px-4 py-3 text-base font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
           >
-            Create Account
+            {isSubmitting ? 'Creating Account...' : 'Create Account'}
           </button>
         </form>
 

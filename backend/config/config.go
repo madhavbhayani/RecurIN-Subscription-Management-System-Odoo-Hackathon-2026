@@ -50,7 +50,7 @@ func Load() (Config, error) {
 		DBMaxConnLifetimeMinutes:   getEnvAsInt("DB_MAX_CONN_LIFETIME_MINUTES", 30),
 		DBMaxConnIdleMinutes:       getEnvAsInt("DB_MAX_CONN_IDLE_MINUTES", 15),
 		DBHealthCheckPeriodSeconds: getEnvAsInt("DB_HEALTH_CHECK_PERIOD_SECONDS", 30),
-		QueueWorkerCount:           getEnvAsInt("QUEUE_WORKER_COUNT", 8),
+		QueueWorkerCount:           getEnvAsInt("QUEUE_WORKER_COUNT", 20),
 		QueueBufferSize:            getEnvAsInt("QUEUE_BUFFER_SIZE", 128),
 		JWTSecret:                  getEnv("JWT_SECRET", ""),
 		JWTIssuer:                  getEnv("JWT_ISSUER", "recurin"),

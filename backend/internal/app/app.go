@@ -12,6 +12,7 @@ import (
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/config"
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/internal/migrations"
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/queue"
+	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/services"
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/services/common/auth"
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/services/common/rbac"
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/services/handlers"
@@ -51,13 +52,14 @@ func NewApplication(ctx context.Context) (*Application, error) {
 
 	workerPool := queue.NewWorkerPool(cfg.QueueWorkerCount, cfg.QueueBufferSize)
 	workerPool.Start()
+	userService := services.NewUserService(dbPool)
 
 	router := http.NewServeMux()
-	registerRoutes(router, tokenManager)
+	registerRoutes(router, tokenManager, workerPool, userService)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
-		Handler:           router,
+		Handler:           withCORS(router),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      20 * time.Second,
@@ -86,22 +88,28 @@ func (a *Application) Shutdown(ctx context.Context) error {
 	return a.HTTPServer.Shutdown(ctx)
 }
 
-func registerRoutes(router *http.ServeMux, tokenManager *auth.TokenManager) {
+func registerRoutes(
+	router *http.ServeMux,
+	tokenManager *auth.TokenManager,
+	workerPool *queue.WorkerPool,
+	userService *services.UserService,
+) {
 	healthHandler := handlers.NewHealthHandler()
-	authHandler := handlers.NewAuthHandler(tokenManager)
+	authHandler := handlers.NewAuthHandler(tokenManager, workerPool, userService)
 
 	router.HandleFunc("GET /api/v1/health", healthHandler.HandleHealth)
+	router.HandleFunc("POST /api/v1/auth/signup", authHandler.HandleSignup)
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.HandleLogin)
 
 	authenticatedRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin", "internal-user", "portal-user")(
+		rbac.RequireRoles("admin", "internal-user", "user", "portal-user")(
 			http.HandlerFunc(authHandler.HandleWhoAmI),
 		),
 	)
 	router.Handle("GET /api/v1/auth/me", authenticatedRoute)
 
 	adminRoute := auth.AuthMiddleware(tokenManager)(
-		rbac.RequireRoles("admin")(
+		rbac.RequireRoles("admin", "internal-user")(
 			http.HandlerFunc(authHandler.HandleAdminPing),
 		),
 	)

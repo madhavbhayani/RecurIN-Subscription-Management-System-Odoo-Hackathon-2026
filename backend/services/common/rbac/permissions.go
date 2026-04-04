@@ -5,6 +5,7 @@ import "strings"
 const (
 	RoleAdmin        = "admin"
 	RoleInternalUser = "internal-user"
+	RoleUser         = "user"
 	RolePortalUser   = "portal-user"
 )
 
