@@ -63,10 +63,10 @@ async function requestWithAuth(path, options = {}) {
   return data
 }
 
-export function listQuotationTemplates(search = '') {
+export function listQuotationTemplates(search = '', page) {
   return requestWithAuth('/api/v1/admin/quotations', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 

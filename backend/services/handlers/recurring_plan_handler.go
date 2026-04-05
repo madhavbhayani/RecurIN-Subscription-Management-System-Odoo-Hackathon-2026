@@ -70,6 +70,19 @@ func (handler *RecurringPlanHandler) HandleListRecurringPlans(writer http.Respon
 	search := request.URL.Query().Get("search")
 	activeOnly := false
 
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
 	activeOnlyValue := strings.TrimSpace(request.URL.Query().Get("active_only"))
 	if activeOnlyValue != "" {
 		parsedActiveOnly, err := strconv.ParseBool(activeOnlyValue)
@@ -80,7 +93,7 @@ func (handler *RecurringPlanHandler) HandleListRecurringPlans(writer http.Respon
 		activeOnly = parsedActiveOnly
 	}
 
-	recurringPlans, err := handler.recurringPlanService.ListRecurringPlans(request.Context(), search, activeOnly)
+	recurringPlans, totalRecords, err := handler.recurringPlanService.ListRecurringPlans(request.Context(), search, activeOnly, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("recurring plan list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -94,6 +107,7 @@ func (handler *RecurringPlanHandler) HandleListRecurringPlans(writer http.Respon
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"recurring_plans": items,
+		"pagination":      buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

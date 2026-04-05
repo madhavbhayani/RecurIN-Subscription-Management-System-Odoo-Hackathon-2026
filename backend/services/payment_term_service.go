@@ -131,10 +131,14 @@ func (service *PaymentTermService) CreatePaymentTerm(ctx context.Context, input 
 	return paymentTerm, nil
 }
 
-func (service *PaymentTermService) ListPaymentTerms(ctx context.Context, search string) ([]models.PaymentTerm, error) {
+func (service *PaymentTermService) ListPaymentTerms(ctx context.Context, search string, page int, limit int) ([]models.PaymentTerm, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT payment_term_id, payment_term_name, due_unit, due_value::float8, interval_days, created_at, updated_at
 		FROM payment_term.payment_term_data
 		WHERE (
@@ -144,9 +148,33 @@ func (service *PaymentTermService) ListPaymentTerms(ctx context.Context, search 
 		)
 		ORDER BY payment_term_name ASC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM payment_term.payment_term_data
+			WHERE (
+				$1 = ''
+				OR payment_term_name ILIKE '%' || $1 || '%'
+				OR due_unit ILIKE '%' || $1 || '%'
+			)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count payment terms: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list payment terms: %w", err)
+		return nil, 0, fmt.Errorf("failed to list payment terms: %w", err)
 	}
 	defer rows.Close()
 
@@ -154,16 +182,20 @@ func (service *PaymentTermService) ListPaymentTerms(ctx context.Context, search 
 	for rows.Next() {
 		paymentTerm, scanErr := scanPaymentTerm(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("failed to scan payment term row: %w", scanErr)
+			return nil, 0, fmt.Errorf("failed to scan payment term row: %w", scanErr)
 		}
 		paymentTerms = append(paymentTerms, paymentTerm)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating payment term rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating payment term rows: %w", err)
 	}
 
-	return paymentTerms, nil
+	if page <= 0 {
+		totalRecords = len(paymentTerms)
+	}
+
+	return paymentTerms, totalRecords, nil
 }
 
 func (service *PaymentTermService) GetPaymentTermByID(ctx context.Context, paymentTermID string) (models.PaymentTerm, error) {

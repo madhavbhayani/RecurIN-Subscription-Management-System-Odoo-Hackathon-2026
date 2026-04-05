@@ -70,10 +70,10 @@ export function createAttribute(payload) {
   })
 }
 
-export function listAttributes(search = '') {
+export function listAttributes(search = '', page) {
   return requestWithAuth('/api/v1/admin/attributes', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 

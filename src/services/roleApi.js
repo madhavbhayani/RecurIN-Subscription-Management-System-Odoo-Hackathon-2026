@@ -63,10 +63,10 @@ async function requestWithAuth(path, options = {}) {
   return data
 }
 
-export function listRoles(search = '') {
+export function listRoles(search = '', page) {
   return requestWithAuth('/api/v1/admin/roles', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 

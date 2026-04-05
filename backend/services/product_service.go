@@ -447,10 +447,14 @@ func (service *ProductService) CreateProduct(ctx context.Context, input CreatePr
 	return service.GetProductByID(ctx, createdProduct.ProductID)
 }
 
-func (service *ProductService) ListProducts(ctx context.Context, search string) ([]models.Product, error) {
+func (service *ProductService) ListProducts(ctx context.Context, search string, page int, limit int) ([]models.Product, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT
 			p.product_id,
 			p.product_name,
@@ -467,9 +471,29 @@ func (service *ProductService) ListProducts(ctx context.Context, search string) 
 		WHERE ($1 = '' OR p.product_name ILIKE '%' || $1 || '%')
 		ORDER BY p.product_name ASC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM products.product_data p
+			WHERE ($1 = '' OR p.product_name ILIKE '%' || $1 || '%')`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count products: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list products: %w", err)
+		return nil, 0, fmt.Errorf("failed to list products: %w", err)
 	}
 	defer rows.Close()
 
@@ -477,17 +501,17 @@ func (service *ProductService) ListProducts(ctx context.Context, search string) 
 	for rows.Next() {
 		product, scanErr := scanProductBaseRow(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("failed to scan product row: %w", scanErr)
+			return nil, 0, fmt.Errorf("failed to scan product row: %w", scanErr)
 		}
 
 		discounts, discountErr := fetchProductDiscounts(ctx, service.db, product.ProductID)
 		if discountErr != nil {
-			return nil, discountErr
+			return nil, 0, discountErr
 		}
 
 		variants, variantErr := fetchProductVariants(ctx, service.db, product.ProductID)
 		if variantErr != nil {
-			return nil, variantErr
+			return nil, 0, variantErr
 		}
 
 		product.Discounts = discounts
@@ -496,10 +520,14 @@ func (service *ProductService) ListProducts(ctx context.Context, search string) 
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating product rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating product rows: %w", err)
 	}
 
-	return products, nil
+	if page <= 0 {
+		totalRecords = len(products)
+	}
+
+	return products, totalRecords, nil
 }
 
 func (service *ProductService) GetProductByID(ctx context.Context, productID string) (models.Product, error) {

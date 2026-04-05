@@ -112,7 +112,20 @@ func (handler *DiscountHandler) HandleCreateDiscount(writer http.ResponseWriter,
 func (handler *DiscountHandler) HandleListDiscounts(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	discounts, err := handler.discountService.ListDiscounts(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	discounts, totalRecords, err := handler.discountService.ListDiscounts(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("discount list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -125,7 +138,8 @@ func (handler *DiscountHandler) HandleListDiscounts(writer http.ResponseWriter, 
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"discounts": items,
+		"discounts":   items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

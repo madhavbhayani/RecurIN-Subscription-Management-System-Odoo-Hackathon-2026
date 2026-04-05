@@ -70,10 +70,10 @@ export function listCustomerUsers(search = '') {
   })
 }
 
-export function listUsers(search = '') {
+export function listUsers(search = '', page) {
   return requestWithAuth('/api/v1/admin/users', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 

@@ -123,10 +123,14 @@ func (service *TaxService) CreateTax(ctx context.Context, input CreateTaxInput) 
 	return tax, nil
 }
 
-func (service *TaxService) ListTaxes(ctx context.Context, search string) ([]models.Tax, error) {
+func (service *TaxService) ListTaxes(ctx context.Context, search string, page int, limit int) ([]models.Tax, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT tax_id, tax_name, tax_computation_unit, tax_computation_value::float8, created_at, updated_at
 		FROM taxes.tax_data
 		WHERE (
@@ -136,9 +140,33 @@ func (service *TaxService) ListTaxes(ctx context.Context, search string) ([]mode
 		)
 		ORDER BY tax_name ASC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM taxes.tax_data
+			WHERE (
+				$1 = ''
+				OR tax_name ILIKE '%' || $1 || '%'
+				OR tax_computation_unit ILIKE '%' || $1 || '%'
+			)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count taxes: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list taxes: %w", err)
+		return nil, 0, fmt.Errorf("failed to list taxes: %w", err)
 	}
 	defer rows.Close()
 
@@ -146,16 +174,20 @@ func (service *TaxService) ListTaxes(ctx context.Context, search string) ([]mode
 	for rows.Next() {
 		tax, scanErr := scanTax(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("failed to scan tax row: %w", scanErr)
+			return nil, 0, fmt.Errorf("failed to scan tax row: %w", scanErr)
 		}
 		taxes = append(taxes, tax)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating tax rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating tax rows: %w", err)
 	}
 
-	return taxes, nil
+	if page <= 0 {
+		totalRecords = len(taxes)
+	}
+
+	return taxes, totalRecords, nil
 }
 
 func (service *TaxService) GetTaxByID(ctx context.Context, taxID string) (models.Tax, error) {

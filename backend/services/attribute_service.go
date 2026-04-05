@@ -134,23 +134,59 @@ func (service *AttributeService) CreateAttribute(ctx context.Context, input Crea
 	return attribute, nil
 }
 
-func (service *AttributeService) ListAttributes(ctx context.Context, search string) ([]models.Attribute, error) {
+func (service *AttributeService) ListAttributes(ctx context.Context, search string, page int, limit int) ([]models.Attribute, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
-		SELECT
-			a.attribute_id,
-			a.attribute_name,
-			a.created_at,
-			a.updated_at,
-			av.attribute_value_id,
-			av.attribute_id,
-			av.attribute_value,
-			av.default_extra_price::float8,
-			av.created_at,
-			av.updated_at
+	if page <= 0 {
+		const query = `
+			SELECT
+				a.attribute_id,
+				a.attribute_name,
+				a.created_at,
+				a.updated_at,
+				av.attribute_value_id,
+				av.attribute_id,
+				av.attribute_value,
+				av.default_extra_price::float8,
+				av.created_at,
+				av.updated_at
+			FROM attributes.attribute a
+			LEFT JOIN attributes.attribute_values av ON av.attribute_id = a.attribute_id
+			WHERE (
+				$1 = ''
+				OR a.attribute_name ILIKE '%' || $1 || '%'
+				OR EXISTS (
+					SELECT 1
+					FROM attributes.attribute_values avs
+					WHERE avs.attribute_id = a.attribute_id
+					  AND avs.attribute_value ILIKE '%' || $1 || '%'
+				)
+			)
+			ORDER BY a.attribute_name ASC, av.attribute_value ASC`
+
+		rows, err := service.db.Query(ctx, query, normalizedSearch)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to list attributes: %w", err)
+		}
+		defer rows.Close()
+
+		attributes, err := scanAttributeListRows(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return attributes, len(attributes), nil
+	}
+
+	offset := (page - 1) * limit
+
+	const countQuery = `
+		SELECT COUNT(*)
 		FROM attributes.attribute a
-		LEFT JOIN attributes.attribute_values av ON av.attribute_id = a.attribute_id
 		WHERE (
 			$1 = ''
 			OR a.attribute_name ILIKE '%' || $1 || '%'
@@ -160,15 +196,64 @@ func (service *AttributeService) ListAttributes(ctx context.Context, search stri
 				WHERE avs.attribute_id = a.attribute_id
 				  AND avs.attribute_value ILIKE '%' || $1 || '%'
 			)
-		)
-		ORDER BY a.attribute_name ASC, av.attribute_value ASC`
+		)`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	var totalRecords int
+	if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+		return nil, 0, fmt.Errorf("failed to count attributes: %w", err)
+	}
+
+	const query = `
+		WITH paged_attributes AS (
+			SELECT
+				a.attribute_id,
+				a.attribute_name,
+				a.created_at,
+				a.updated_at
+			FROM attributes.attribute a
+			WHERE (
+				$1 = ''
+				OR a.attribute_name ILIKE '%' || $1 || '%'
+				OR EXISTS (
+					SELECT 1
+					FROM attributes.attribute_values avs
+					WHERE avs.attribute_id = a.attribute_id
+					  AND avs.attribute_value ILIKE '%' || $1 || '%'
+				)
+			)
+			ORDER BY a.attribute_name ASC
+			LIMIT $2 OFFSET $3
+		)
+		SELECT
+			pa.attribute_id,
+			pa.attribute_name,
+			pa.created_at,
+			pa.updated_at,
+			av.attribute_value_id,
+			av.attribute_id,
+			av.attribute_value,
+			av.default_extra_price::float8,
+			av.created_at,
+			av.updated_at
+		FROM paged_attributes pa
+		LEFT JOIN attributes.attribute_values av ON av.attribute_id = pa.attribute_id
+		ORDER BY pa.attribute_name ASC, av.attribute_value ASC`
+
+	rows, err := service.db.Query(ctx, query, normalizedSearch, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list attributes: %w", err)
+		return nil, 0, fmt.Errorf("failed to list attributes: %w", err)
 	}
 	defer rows.Close()
 
+	attributes, err := scanAttributeListRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return attributes, totalRecords, nil
+}
+
+func scanAttributeListRows(rows pgx.Rows) ([]models.Attribute, error) {
 	attributes := make([]models.Attribute, 0)
 	attributeIndexByID := make(map[string]int)
 

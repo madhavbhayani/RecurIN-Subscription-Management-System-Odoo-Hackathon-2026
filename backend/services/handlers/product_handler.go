@@ -80,7 +80,20 @@ func (handler *ProductHandler) HandleCreateProduct(writer http.ResponseWriter, r
 func (handler *ProductHandler) HandleListProducts(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	products, err := handler.productService.ListProducts(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	products, totalRecords, err := handler.productService.ListProducts(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("product list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -93,7 +106,8 @@ func (handler *ProductHandler) HandleListProducts(writer http.ResponseWriter, re
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"products": items,
+		"products":    items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

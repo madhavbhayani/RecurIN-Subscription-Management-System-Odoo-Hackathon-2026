@@ -61,7 +61,20 @@ func (handler *PaymentTermHandler) HandleCreatePaymentTerm(writer http.ResponseW
 func (handler *PaymentTermHandler) HandleListPaymentTerms(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	paymentTerms, err := handler.paymentTermService.ListPaymentTerms(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	paymentTerms, totalRecords, err := handler.paymentTermService.ListPaymentTerms(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("payment term list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -75,6 +88,7 @@ func (handler *PaymentTermHandler) HandleListPaymentTerms(writer http.ResponseWr
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"payment_terms": items,
+		"pagination":    buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

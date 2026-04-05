@@ -142,7 +142,20 @@ func (handler *SubscriptionHandler) HandleCreateSubscription(writer http.Respons
 func (handler *SubscriptionHandler) HandleListSubscriptions(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	subscriptions, err := handler.subscriptionService.ListSubscriptions(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	subscriptions, totalRecords, err := handler.subscriptionService.ListSubscriptions(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("subscription list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -156,6 +169,7 @@ func (handler *SubscriptionHandler) HandleListSubscriptions(writer http.Response
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"subscriptions": items,
+		"pagination":    buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

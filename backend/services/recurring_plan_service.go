@@ -212,10 +212,14 @@ func (service *RecurringPlanService) CreateRecurringPlan(ctx context.Context, in
 	return service.GetRecurringPlanByID(ctx, createdRecurringPlan.RecurringPlanID)
 }
 
-func (service *RecurringPlanService) ListRecurringPlans(ctx context.Context, search string, activeOnly bool) ([]models.RecurringPlan, error) {
+func (service *RecurringPlanService) ListRecurringPlans(ctx context.Context, search string, activeOnly bool, page int, limit int) ([]models.RecurringPlan, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT
 			rp.recurring_plan_id,
 			rp.recurring_name,
@@ -245,9 +249,30 @@ func (service *RecurringPlanService) ListRecurringPlans(ctx context.Context, sea
 			rp.updated_at
 		ORDER BY rp.created_at DESC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch, activeOnly)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch, activeOnly}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM recurring_plans.recurring_plan_data rp
+			WHERE ($1 = '' OR rp.recurring_name ILIKE '%' || $1 || '%')
+			  AND ($2 = FALSE OR rp.is_active = TRUE)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch, activeOnly).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count recurring plans: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $3 OFFSET $4"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list recurring plans: %w", err)
+		return nil, 0, fmt.Errorf("failed to list recurring plans: %w", err)
 	}
 	defer rows.Close()
 
@@ -267,17 +292,21 @@ func (service *RecurringPlanService) ListRecurringPlans(ctx context.Context, sea
 			&recurringPlan.UpdatedAt,
 			&recurringPlan.ProductCount,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan recurring plan row: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan recurring plan row: %w", err)
 		}
 		recurringPlan.Products = []models.RecurringPlanProduct{}
 		recurringPlans = append(recurringPlans, recurringPlan)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating recurring plan rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating recurring plan rows: %w", err)
 	}
 
-	return recurringPlans, nil
+	if page <= 0 {
+		totalRecords = len(recurringPlans)
+	}
+
+	return recurringPlans, totalRecords, nil
 }
 
 func (service *RecurringPlanService) GetRecurringPlanByID(ctx context.Context, recurringPlanID string) (models.RecurringPlan, error) {

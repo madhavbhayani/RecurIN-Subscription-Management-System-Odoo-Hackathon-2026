@@ -61,7 +61,20 @@ func (handler *QuotationHandler) HandleCreateQuotation(writer http.ResponseWrite
 func (handler *QuotationHandler) HandleListQuotations(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	quotations, err := handler.quotationService.ListQuotations(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	quotations, totalRecords, err := handler.quotationService.ListQuotations(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("quotation list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -74,7 +87,8 @@ func (handler *QuotationHandler) HandleListQuotations(writer http.ResponseWriter
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"quotations": items,
+		"quotations":  items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

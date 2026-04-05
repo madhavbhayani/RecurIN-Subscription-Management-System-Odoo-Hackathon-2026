@@ -104,10 +104,10 @@ async function requestPublic(path, options = {}) {
   return parseResponse(response)
 }
 
-export function listProducts(search = '') {
+export function listProducts(search = '', page) {
   return requestWithAuth('/api/v1/admin/products', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 

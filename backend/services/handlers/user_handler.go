@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/models"
@@ -90,19 +89,21 @@ func (handler *UserHandler) writeUserError(writer http.ResponseWriter, err error
 
 func (handler *UserHandler) HandleListUsers(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
-	limit := 100
 
-	limitText := request.URL.Query().Get("limit")
-	if limitText != "" {
-		parsedLimit, err := strconv.Atoi(limitText)
-		if err != nil {
-			http.Error(writer, "limit must be a valid integer", http.StatusBadRequest)
-			return
-		}
-		limit = parsedLimit
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
 	}
 
-	users, err := handler.userService.ListUsers(request.Context(), search, limit)
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	users, totalRecords, err := handler.userService.ListUsers(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		handler.writeUserError(writer, err)
 		return
@@ -114,7 +115,8 @@ func (handler *UserHandler) HandleListUsers(writer http.ResponseWriter, request 
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"users": items,
+		"users":      items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

@@ -63,10 +63,10 @@ async function requestWithAuth(path, options = {}) {
   return data
 }
 
-export function listSubscriptions(search = '') {
+export function listSubscriptions(search = '', page) {
   return requestWithAuth('/api/v1/admin/subscriptions', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 

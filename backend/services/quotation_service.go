@@ -236,10 +236,14 @@ func (service *QuotationService) CreateQuotation(ctx context.Context, input Crea
 	return service.GetQuotationByID(ctx, quotationID)
 }
 
-func (service *QuotationService) ListQuotations(ctx context.Context, search string) ([]models.Quotation, error) {
+func (service *QuotationService) ListQuotations(ctx context.Context, search string, page int, limit int) ([]models.Quotation, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT
 			q.quotation_id,
 			q.last_forever,
@@ -264,9 +268,35 @@ func (service *QuotationService) ListQuotations(ctx context.Context, search stri
 		)
 		ORDER BY q.created_at DESC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM quotations.quotation q
+			JOIN recurring_plans.recurring_plan_data rp
+				ON rp.recurring_plan_id = q.recurring_plan_id
+			WHERE (
+				$1 = ''
+				OR rp.recurring_name ILIKE '%' || $1 || '%'
+				OR q.quotation_id::text ILIKE '%' || $1 || '%'
+			)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count quotations: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list quotations: %w", err)
+		return nil, 0, fmt.Errorf("failed to list quotations: %w", err)
 	}
 	defer rows.Close()
 
@@ -283,7 +313,7 @@ func (service *QuotationService) ListQuotations(ctx context.Context, search stri
 			&quotation.UpdatedAt,
 			&quotation.ProductCount,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan quotation row: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan quotation row: %w", err)
 		}
 
 		quotation.Products = []models.QuotationProduct{}
@@ -291,10 +321,14 @@ func (service *QuotationService) ListQuotations(ctx context.Context, search stri
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating quotation rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating quotation rows: %w", err)
 	}
 
-	return quotations, nil
+	if page <= 0 {
+		totalRecords = len(quotations)
+	}
+
+	return quotations, totalRecords, nil
 }
 
 func (service *QuotationService) GetQuotationByID(ctx context.Context, quotationID string) (models.Quotation, error) {

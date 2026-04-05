@@ -277,12 +277,65 @@ func validateUserUpdateInput(input UpdateUserInput) (UpdateUserInput, error) {
 	}, nil
 }
 
-func (service *UserService) ListUsers(ctx context.Context, search string, limit int) ([]models.User, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
+func (service *UserService) ListUsers(ctx context.Context, search string, page int, limit int) ([]models.User, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
 	}
 
 	normalizedSearch := strings.TrimSpace(search)
+
+	if page <= 0 {
+		const query = `
+			SELECT id, name, email, phone_number, address, role, created_at, updated_at
+			FROM users."user"
+			WHERE (
+				$1 = ''
+				OR name ILIKE '%' || $1 || '%'
+				OR email ILIKE '%' || $1 || '%'
+				OR phone_number ILIKE '%' || $1 || '%'
+				OR role::text ILIKE '%' || $1 || '%'
+			)
+			ORDER BY created_at DESC`
+
+		rows, err := service.db.Query(ctx, query, normalizedSearch)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to list users: %w", err)
+		}
+		defer rows.Close()
+
+		users := make([]models.User, 0)
+		for rows.Next() {
+			user, scanErr := scanUser(rows)
+			if scanErr != nil {
+				return nil, 0, fmt.Errorf("failed to scan user row: %w", scanErr)
+			}
+			users = append(users, user)
+		}
+
+		if err := rows.Err(); err != nil {
+			return nil, 0, fmt.Errorf("failed while iterating user rows: %w", err)
+		}
+
+		return users, len(users), nil
+	}
+
+	offset := (page - 1) * limit
+
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM users."user"
+		WHERE (
+			$1 = ''
+			OR name ILIKE '%' || $1 || '%'
+			OR email ILIKE '%' || $1 || '%'
+			OR phone_number ILIKE '%' || $1 || '%'
+			OR role::text ILIKE '%' || $1 || '%'
+		)`
+
+	var totalRecords int
+	if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+		return nil, 0, fmt.Errorf("failed to count users: %w", err)
+	}
 
 	const query = `
 		SELECT id, name, email, phone_number, address, role, created_at, updated_at
@@ -295,11 +348,11 @@ func (service *UserService) ListUsers(ctx context.Context, search string, limit 
 			OR role::text ILIKE '%' || $1 || '%'
 		)
 		ORDER BY created_at DESC
-		LIMIT $2`
+		LIMIT $2 OFFSET $3`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch, limit)
+	rows, err := service.db.Query(ctx, query, normalizedSearch, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list users: %w", err)
+		return nil, 0, fmt.Errorf("failed to list users: %w", err)
 	}
 	defer rows.Close()
 
@@ -307,16 +360,16 @@ func (service *UserService) ListUsers(ctx context.Context, search string, limit 
 	for rows.Next() {
 		user, scanErr := scanUser(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("failed to scan user row: %w", scanErr)
+			return nil, 0, fmt.Errorf("failed to scan user row: %w", scanErr)
 		}
 		users = append(users, user)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating user rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating user rows: %w", err)
 	}
 
-	return users, nil
+	return users, totalRecords, nil
 }
 
 func (service *UserService) GetUserByID(ctx context.Context, userID string) (models.User, error) {

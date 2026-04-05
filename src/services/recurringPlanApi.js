@@ -104,12 +104,13 @@ async function requestPublic(path, options = {}) {
   return parseResponse(response)
 }
 
-export function listRecurringPlans(search = '', activeOnly = false) {
+export function listRecurringPlans(search = '', activeOnly = false, page) {
   return requestWithAuth('/api/v1/admin/recurring-plans', {
     method: 'GET',
     queryParams: {
       search,
       active_only: String(Boolean(activeOnly)),
+      page,
     },
   })
 }

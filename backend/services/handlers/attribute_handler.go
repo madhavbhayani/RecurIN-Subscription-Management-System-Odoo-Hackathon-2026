@@ -70,7 +70,20 @@ func (handler *AttributeHandler) HandleCreateAttribute(writer http.ResponseWrite
 func (handler *AttributeHandler) HandleListAttributes(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	attributes, err := handler.attributeService.ListAttributes(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	attributes, totalRecords, err := handler.attributeService.ListAttributes(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("attribute list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -83,7 +96,8 @@ func (handler *AttributeHandler) HandleListAttributes(writer http.ResponseWriter
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"attributes": items,
+		"attributes":  items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

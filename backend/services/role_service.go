@@ -268,10 +268,14 @@ func insertRolePermissions(ctx context.Context, tx pgx.Tx, roleID string, permis
 	return nil
 }
 
-func (service *RoleService) ListRoles(ctx context.Context, search string) ([]models.RoleProfile, error) {
+func (service *RoleService) ListRoles(ctx context.Context, search string, page int, limit int) ([]models.RoleProfile, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT
 			rd.role_id,
 			rd.role_name,
@@ -291,9 +295,35 @@ func (service *RoleService) ListRoles(ctx context.Context, search string) ([]mod
 		)
 		ORDER BY rd.is_system DESC, rd.created_at DESC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM privileges.role_data rd
+			LEFT JOIN users."user" u ON u.id = rd.user_id
+			WHERE (
+				$1 = ''
+				OR rd.role_name ILIKE '%' || $1 || '%'
+				OR COALESCE(u.name, '') ILIKE '%' || $1 || '%'
+				OR COALESCE(u.email, '') ILIKE '%' || $1 || '%'
+			)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count roles: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list roles: %w", err)
+		return nil, 0, fmt.Errorf("failed to list roles: %w", err)
 	}
 	defer rows.Close()
 
@@ -301,22 +331,26 @@ func (service *RoleService) ListRoles(ctx context.Context, search string) ([]mod
 	for rows.Next() {
 		role, scanErr := scanRoleBaseRow(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("failed to scan role row: %w", scanErr)
+			return nil, 0, fmt.Errorf("failed to scan role row: %w", scanErr)
 		}
 
 		permissions, permissionsErr := fetchRolePermissions(ctx, service.db, role.RoleID)
 		if permissionsErr != nil {
-			return nil, permissionsErr
+			return nil, 0, permissionsErr
 		}
 		role.Permissions = permissions
 		roles = append(roles, role)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating role rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating role rows: %w", err)
 	}
 
-	return roles, nil
+	if page <= 0 {
+		totalRecords = len(roles)
+	}
+
+	return roles, totalRecords, nil
 }
 
 func (service *RoleService) GetRoleByID(ctx context.Context, roleID string) (models.RoleProfile, error) {

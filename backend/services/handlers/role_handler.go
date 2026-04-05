@@ -130,7 +130,20 @@ func (handler *RoleHandler) HandleCreateRole(writer http.ResponseWriter, request
 func (handler *RoleHandler) HandleListRoles(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	roles, err := handler.roleService.ListRoles(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	roles, totalRecords, err := handler.roleService.ListRoles(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		handler.writeRoleError(writer, err)
 		return
@@ -142,7 +155,8 @@ func (handler *RoleHandler) HandleListRoles(writer http.ResponseWriter, request 
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"roles": items,
+		"roles":      items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

@@ -895,10 +895,14 @@ func (service *SubscriptionService) CreateSubscription(ctx context.Context, inpu
 	return subscription, nil
 }
 
-func (service *SubscriptionService) ListSubscriptions(ctx context.Context, search string) ([]models.Subscription, error) {
+func (service *SubscriptionService) ListSubscriptions(ctx context.Context, search string, page int, limit int) ([]models.Subscription, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT
 			s.subscription_id,
 			s.subscription_number,
@@ -927,9 +931,37 @@ func (service *SubscriptionService) ListSubscriptions(ctx context.Context, searc
 		)
 		ORDER BY s.created_at DESC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM subscription.subscriptions s
+			LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+			WHERE (
+				$1 = ''
+				OR s.subscription_number ILIKE '%' || $1 || '%'
+				OR s.customer_name ILIKE '%' || $1 || '%'
+				OR rp.recurring_name ILIKE '%' || $1 || '%'
+				OR rp.billing_period ILIKE '%' || $1 || '%'
+				OR s.status ILIKE '%' || $1 || '%'
+			)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count subscriptions: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list subscriptions: %w", err)
+		return nil, 0, fmt.Errorf("failed to list subscriptions: %w", err)
 	}
 	defer rows.Close()
 
@@ -937,12 +969,12 @@ func (service *SubscriptionService) ListSubscriptions(ctx context.Context, searc
 	for rows.Next() {
 		subscription, scanErr := scanSubscriptionRow(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("failed to scan subscription row: %w", scanErr)
+			return nil, 0, fmt.Errorf("failed to scan subscription row: %w", scanErr)
 		}
 
 		payment, paymentErr := fetchLatestSubscriptionPayment(ctx, service.db, subscription.SubscriptionID)
 		if paymentErr != nil {
-			return nil, paymentErr
+			return nil, 0, paymentErr
 		}
 		subscription.Payment = payment
 
@@ -950,10 +982,14 @@ func (service *SubscriptionService) ListSubscriptions(ctx context.Context, searc
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating subscription rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating subscription rows: %w", err)
 	}
 
-	return subscriptions, nil
+	if page <= 0 {
+		totalRecords = len(subscriptions)
+	}
+
+	return subscriptions, totalRecords, nil
 }
 
 func fetchSubscriptionProductVariants(

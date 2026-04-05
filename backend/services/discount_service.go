@@ -309,10 +309,14 @@ func (service *DiscountService) CreateDiscount(ctx context.Context, input Create
 	return service.GetDiscountByID(ctx, createdDiscount.DiscountID)
 }
 
-func (service *DiscountService) ListDiscounts(ctx context.Context, search string) ([]models.Discount, error) {
+func (service *DiscountService) ListDiscounts(ctx context.Context, search string, page int, limit int) ([]models.Discount, int, error) {
+	if limit <= 0 || limit > 30 {
+		limit = 30
+	}
+
 	normalizedSearch := strings.TrimSpace(search)
 
-	const query = `
+	const baseQuery = `
 		SELECT
 			d.discount_id,
 			d.discount_name,
@@ -342,9 +346,33 @@ func (service *DiscountService) ListDiscounts(ctx context.Context, search string
 		)
 		ORDER BY d.created_at DESC`
 
-	rows, err := service.db.Query(ctx, query, normalizedSearch)
+	totalRecords := 0
+	query := baseQuery
+	queryArgs := []interface{}{normalizedSearch}
+
+	if page > 0 {
+		offset := (page - 1) * limit
+
+		const countQuery = `
+			SELECT COUNT(*)
+			FROM discount.discount_data d
+			WHERE (
+				$1 = ''
+				OR d.discount_name ILIKE '%' || $1 || '%'
+				OR d.discount_unit ILIKE '%' || $1 || '%'
+			)`
+
+		if err := service.db.QueryRow(ctx, countQuery, normalizedSearch).Scan(&totalRecords); err != nil {
+			return nil, 0, fmt.Errorf("failed to count discounts: %w", err)
+		}
+
+		query = query + "\n\t\tLIMIT $2 OFFSET $3"
+		queryArgs = append(queryArgs, limit, offset)
+	}
+
+	rows, err := service.db.Query(ctx, query, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list discounts: %w", err)
+		return nil, 0, fmt.Errorf("failed to list discounts: %w", err)
 	}
 	defer rows.Close()
 
@@ -368,7 +396,7 @@ func (service *DiscountService) ListDiscounts(ctx context.Context, search string
 			&discount.UpdatedAt,
 			&discount.ProductCount,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan discount row: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan discount row: %w", err)
 		}
 
 		discount.Products = []models.DiscountProduct{}
@@ -377,10 +405,14 @@ func (service *DiscountService) ListDiscounts(ctx context.Context, search string
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating discount rows: %w", err)
+		return nil, 0, fmt.Errorf("failed while iterating discount rows: %w", err)
 	}
 
-	return discounts, nil
+	if page <= 0 {
+		totalRecords = len(discounts)
+	}
+
+	return discounts, totalRecords, nil
 }
 
 func (service *DiscountService) GetDiscountByID(ctx context.Context, discountID string) (models.Discount, error) {

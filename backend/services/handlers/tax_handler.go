@@ -55,7 +55,20 @@ func (handler *TaxHandler) HandleCreateTax(writer http.ResponseWriter, request *
 func (handler *TaxHandler) HandleListTaxes(writer http.ResponseWriter, request *http.Request) {
 	search := request.URL.Query().Get("search")
 
-	taxes, err := handler.taxService.ListTaxes(request.Context(), search)
+	page, hasPage, err := parsePageQuery(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	pageForQuery := 0
+	pageForResponse := 1
+	if hasPage {
+		pageForQuery = page
+		pageForResponse = page
+	}
+
+	taxes, totalRecords, err := handler.taxService.ListTaxes(request.Context(), search, pageForQuery, adminListPageSize)
 	if err != nil {
 		log.Printf("tax list handler error: %v", err)
 		http.Error(writer, "Request processing failed.", http.StatusInternalServerError)
@@ -68,7 +81,8 @@ func (handler *TaxHandler) HandleListTaxes(writer http.ResponseWriter, request *
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"taxes": items,
+		"taxes":      items,
+		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
 

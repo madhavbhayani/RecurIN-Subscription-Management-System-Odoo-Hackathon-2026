@@ -63,10 +63,10 @@ async function requestWithAuth(path, options = {}) {
   return data
 }
 
-export function listTaxes(search = '') {
+export function listTaxes(search = '', page) {
   return requestWithAuth('/api/v1/admin/taxes', {
     method: 'GET',
-    queryParams: { search },
+    queryParams: { search, page },
   })
 }
 
