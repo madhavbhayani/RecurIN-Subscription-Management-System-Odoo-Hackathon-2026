@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { capturePayPalCheckoutOrder } from '../services/checkoutApi'
+import { capturePayPalCheckoutOrder, downloadMySubscriptionInvoicePdf } from '../services/checkoutApi'
 import { getAuthSession } from '../services/session'
 
 const CHECKOUT_SNAPSHOT_KEY = 'recurin_checkout_snapshot'
@@ -61,6 +61,8 @@ function formatInrCurrency(value) {
 function CheckoutSuccessPage() {
   const [searchParams] = useSearchParams()
   const [payment, setPayment] = useState(null)
+  const [downloadMessage, setDownloadMessage] = useState('')
+  const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false)
   const [displayedAt] = useState(() => new Date())
   const checkoutSnapshotRef = useRef(readCheckoutSnapshot())
   const hasCapturedRef = useRef(false)
@@ -76,28 +78,29 @@ function CheckoutSuccessPage() {
       ?? orderID
       ?? ''
   ).trim()
+  const checkoutSnapshot = checkoutSnapshotRef.current
   const checkedOutAmount = Number(checkoutSnapshotRef.current?.amount_inr)
   const amountInINR = Number.isFinite(checkedOutAmount) ? checkedOutAmount : Number(payment?.amount)
+  const capturedSubscriptionIDs = Array.isArray(payment?.subscription_ids) ? payment.subscription_ids : []
 
-  const handleDownloadInvoice = () => {
-    const invoiceLines = [
-      'RecurIN Payment Invoice',
-      `Invoice Number: ${invoiceNumber || '-'}`,
-      `Order ID: ${payment?.order_id || orderID || paymentID || '-'}`,
-      'Status: COMPLETED',
-      `Amount (INR): ${formatInrCurrency(amountInINR)}`,
-      `Payment Date: ${displayedAt.toLocaleString()}`,
-    ]
+  const handleDownloadInvoice = async () => {
+    setDownloadMessage('')
 
-    const invoiceBlob = new Blob([`${invoiceLines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' })
-    const invoiceURL = URL.createObjectURL(invoiceBlob)
-    const anchor = document.createElement('a')
-    anchor.href = invoiceURL
-    anchor.download = `Invoice-${invoiceNumber || 'RecurIN'}.txt`
-    document.body.appendChild(anchor)
-    anchor.click()
-    document.body.removeChild(anchor)
-    URL.revokeObjectURL(invoiceURL)
+    const firstSubscriptionID = String(capturedSubscriptionIDs[0] ?? '').trim()
+    if (!firstSubscriptionID) {
+      setDownloadMessage('Invoice is being prepared. You can download it from My Subscriptions shortly.')
+      return
+    }
+
+    setIsDownloadingInvoice(true)
+    try {
+      const fallbackFileName = `Invoice-${invoiceNumber || firstSubscriptionID}.pdf`
+      await downloadMySubscriptionInvoicePdf(firstSubscriptionID, fallbackFileName)
+    } catch (error) {
+      setDownloadMessage(error.message)
+    } finally {
+      setIsDownloadingInvoice(false)
+    }
   }
 
   useEffect(() => {
@@ -179,6 +182,12 @@ function CheckoutSuccessPage() {
             <p className="font-bold">Subscription Created</p>
             <p className="mt-1">Your subscription has been automatically activated based on your cart items. You can view and manage it from the My Subscriptions page.</p>
           </div>
+
+          {downloadMessage && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {downloadMessage}
+            </div>
+          )}
           </>
         )}
 
@@ -186,9 +195,10 @@ function CheckoutSuccessPage() {
           <button
             type="button"
             onClick={handleDownloadInvoice}
+            disabled={isDownloadingInvoice}
             className="inline-flex h-10 items-center rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 text-sm font-semibold text-[var(--navy)] transition-colors duration-300 hover:border-[var(--orange)] hover:text-[var(--orange)]"
           >
-            Download Invoice
+            {isDownloadingInvoice ? 'Preparing Invoice...' : 'Download Invoice'}
           </button>
           <Link
             to="/shop"

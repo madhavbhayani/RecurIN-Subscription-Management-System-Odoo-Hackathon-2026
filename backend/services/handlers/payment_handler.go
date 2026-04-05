@@ -79,12 +79,13 @@ func (handler *PaymentHandler) HandleCapturePayPalOrder(writer http.ResponseWrit
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"message": "Payment captured successfully.",
 		"payment": map[string]interface{}{
-			"order_id":    captureResult.OrderID,
-			"capture_id":  captureResult.CaptureID,
-			"status":      captureResult.Status,
-			"amount":      captureResult.Amount,
-			"currency":    captureResult.Currency,
-			"payer_email": captureResult.PayerEmail,
+			"order_id":         captureResult.OrderID,
+			"capture_id":       captureResult.CaptureID,
+			"status":           captureResult.Status,
+			"amount":           captureResult.Amount,
+			"currency":         captureResult.Currency,
+			"payer_email":      captureResult.PayerEmail,
+			"subscription_ids": captureResult.SubscriptionIDs,
 		},
 	})
 }

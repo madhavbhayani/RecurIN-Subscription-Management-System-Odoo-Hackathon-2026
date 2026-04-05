@@ -214,6 +214,18 @@ func normalizeUserRole(role string) (models.Role, bool) {
 	}
 }
 
+func normalizeQuotationAction(action string) (models.SubscriptionStatus, error) {
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+	switch normalizedAction {
+	case "accept":
+		return models.SubscriptionStatusConfirmed, nil
+	case "reject":
+		return models.SubscriptionStatusCancelled, nil
+	default:
+		return "", ValidationError{Message: "action must be either accept or reject"}
+	}
+}
+
 func normalizePhoneNumber(phoneNumber string) string {
 	trimmedPhoneNumber := strings.TrimSpace(phoneNumber)
 	if trimmedPhoneNumber == "" {
@@ -395,7 +407,7 @@ func (service *UserService) ListPortalSubscriptionsByUserID(ctx context.Context,
 		FROM subscription.subscriptions s
 		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		WHERE s.customer_id = $1
-		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed')
+		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed', 'Cancelled')
 		ORDER BY s.updated_at DESC, s.created_at DESC`
 
 	rows, err := service.db.Query(ctx, query, normalizedUserID)
@@ -453,7 +465,7 @@ func (service *UserService) ListPortalSubscriptionsDetailedByUserID(ctx context.
 		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = s.payment_term_id
 		WHERE s.customer_id = $1
-		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed')
+		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed', 'Cancelled')
 		ORDER BY s.updated_at DESC, s.created_at DESC`
 
 	rows, err := service.db.Query(ctx, query, normalizedUserID)
@@ -495,6 +507,125 @@ func (service *UserService) ListPortalSubscriptionsDetailedByUserID(ctx context.
 	}
 
 	return subscriptions, nil
+}
+
+func (service *UserService) GetPortalSubscriptionByID(ctx context.Context, userID, subscriptionID string) (models.Subscription, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return models.Subscription{}, ValidationError{Message: "User ID is required."}
+	}
+
+	normalizedSubscriptionID := strings.TrimSpace(subscriptionID)
+	if normalizedSubscriptionID == "" {
+		return models.Subscription{}, ValidationError{Message: "Subscription ID is required."}
+	}
+
+	const query = `
+		SELECT
+			s.subscription_id,
+			s.subscription_number,
+			s.customer_id,
+			s.customer_name,
+			s.next_invoice_date,
+			rp.billing_period AS recurring,
+			rp.recurring_name AS plan,
+			s.recurring_plan_id,
+			s.payment_term_id,
+			pt.payment_term_name,
+			s.quotation_id,
+			s.status,
+			s.created_at,
+			s.updated_at
+		FROM subscription.subscriptions s
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = s.payment_term_id
+		WHERE s.customer_id = $1
+		  AND s.subscription_id = $2
+		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed', 'Cancelled')`
+
+	subscription, err := scanSubscriptionRow(service.db.QueryRow(ctx, query, normalizedUserID, normalizedSubscriptionID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Subscription{}, ErrSubscriptionNotFound
+		}
+		return models.Subscription{}, fmt.Errorf("failed to fetch portal subscription: %w", err)
+	}
+
+	products, productErr := fetchSubscriptionProducts(ctx, service.db, subscription.SubscriptionID)
+	if productErr != nil {
+		return models.Subscription{}, productErr
+	}
+
+	otherInfo, otherInfoErr := fetchSubscriptionOtherInfo(ctx, service.db, subscription.SubscriptionID)
+	if otherInfoErr != nil {
+		return models.Subscription{}, otherInfoErr
+	}
+
+	payment, paymentErr := fetchLatestSubscriptionPayment(ctx, service.db, subscription.SubscriptionID)
+	if paymentErr != nil {
+		return models.Subscription{}, paymentErr
+	}
+
+	subscription.Products = products
+	subscription.OtherInfo = otherInfo
+	subscription.Payment = payment
+
+	return subscription, nil
+}
+
+func (service *UserService) RespondToQuotation(ctx context.Context, userID, subscriptionID, action string) (models.SubscriptionStatus, error) {
+	normalizedUserID := strings.TrimSpace(userID)
+	if normalizedUserID == "" {
+		return "", ValidationError{Message: "User ID is required."}
+	}
+
+	normalizedSubscriptionID := strings.TrimSpace(subscriptionID)
+	if normalizedSubscriptionID == "" {
+		return "", ValidationError{Message: "Subscription ID is required."}
+	}
+
+	nextStatus, err := normalizeQuotationAction(action)
+	if err != nil {
+		return "", err
+	}
+
+	const updateQuery = `
+		UPDATE subscription.subscriptions
+		SET
+			status = $1,
+			updated_at = NOW()
+		WHERE subscription_id = $2
+		  AND customer_id = $3
+		  AND status = 'Quotation Sent'
+		RETURNING status`
+
+	var updatedStatus string
+	err = service.db.QueryRow(ctx, updateQuery, string(nextStatus), normalizedSubscriptionID, normalizedUserID).Scan(&updatedStatus)
+	if err == nil {
+		return models.SubscriptionStatus(updatedStatus), nil
+	}
+
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("failed to respond to quotation: %w", err)
+	}
+
+	const stateQuery = `
+		SELECT status
+		FROM subscription.subscriptions
+		WHERE subscription_id = $1
+		  AND customer_id = $2
+		LIMIT 1`
+
+	var currentStatus string
+	stateErr := service.db.QueryRow(ctx, stateQuery, normalizedSubscriptionID, normalizedUserID).Scan(&currentStatus)
+	if stateErr != nil {
+		if errors.Is(stateErr, pgx.ErrNoRows) {
+			return "", ErrSubscriptionNotFound
+		}
+		return "", fmt.Errorf("failed to validate quotation response state: %w", stateErr)
+	}
+
+	return "", ValidationError{Message: fmt.Sprintf("quotation response is only allowed when status is Quotation Sent (current: %s)", currentStatus)}
 }
 
 func (service *UserService) UpdateUser(ctx context.Context, userID string, input UpdateUserInput) (models.User, error) {

@@ -14,6 +14,7 @@ type Config struct {
 	ServerPort                 string
 	MigrationsDir              string
 	FrontendBaseURL            string
+	PDFLogoPath                string
 	PayPalClientID             string
 	PayPalSecret               string
 	CurrencyAPIKey             string
@@ -50,6 +51,7 @@ func Load() (Config, error) {
 		ServerPort:                 getEnv("SERVER_PORT", "8080"),
 		MigrationsDir:              getEnv("MIGRATIONS_DIR", "migrations"),
 		FrontendBaseURL:            getEnv("FRONTEND_BASE_URL", "http://localhost:5173"),
+		PDFLogoPath:                getEnv("PDF_LOGO_PATH", "../src/assets/image.png"),
 		PayPalClientID:             getEnv("PAYPAL_CLIENT_ID", ""),
 		PayPalSecret:               getEnv("PAYPAL_SECRET", ""),
 		CurrencyAPIKey:             getEnv("CURRENCY_API", ""),

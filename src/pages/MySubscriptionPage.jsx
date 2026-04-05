@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listMySubscriptions } from '../services/checkoutApi'
+import {
+  downloadMySubscriptionInvoicePdf,
+  downloadMySubscriptionQuotationPdf,
+  listMySubscriptions,
+  respondToQuotation,
+} from '../services/checkoutApi'
 import { getAuthSession } from '../services/session'
 
 const TAB_ACTIVE = 'active'
@@ -24,26 +29,32 @@ function formatDate(dateValue) {
   })
 }
 
-function formatMoney(amountValue, currencyCode = 'USD') {
+function formatMoneyINR(amountValue) {
   const numericValue = Number(amountValue)
   if (!Number.isFinite(numericValue)) {
-    return `${currencyCode} 0.00`
+    return '₹0.00'
   }
 
-  const normalizedCurrency = String(currencyCode || 'USD').trim().toUpperCase()
   try {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: normalizedCurrency,
+      currency: 'INR',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(numericValue)
   } catch {
-    return `${normalizedCurrency} ${numericValue.toFixed(2)}`
+    return `₹${numericValue.toFixed(2)}`
   }
 }
 
-function SubscriptionCards({ items, emptyMessage }) {
+function SubscriptionCards({
+  items,
+  emptyMessage,
+  isQuotation = false,
+  onQuotationAction,
+  onDownloadInvoice,
+  onDownloadQuotation,
+}) {
   if (!items.length) {
     return (
       <div className="rounded-xl border border-[color:rgba(0,0,128,0.12)] bg-[rgba(0,0,128,0.03)] px-4 py-5 text-sm text-[color:rgba(0,0,128,0.7)]">
@@ -54,61 +65,98 @@ function SubscriptionCards({ items, emptyMessage }) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {items.map((subscription) => (
-        (() => {
-          const products = Array.isArray(subscription.products) ? subscription.products : []
-          const payment = subscription.payment ?? null
+      {items.map((subscription) => {
+        const products = Array.isArray(subscription.products) ? subscription.products : []
+        const payment = subscription.payment ?? null
 
-          return (
-        <article
-          key={subscription.subscription_id}
-          className="rounded-xl border border-[color:rgba(0,0,128,0.14)] bg-[var(--white)] px-4 py-4 shadow-[0_6px_20px_rgba(0,0,128,0.07)]"
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:rgba(0,0,128,0.62)]">
-            {subscription.status || '-'}
-          </p>
-          <h2 className="mt-1 text-lg font-bold text-[var(--navy)]">
-            {subscription.subscription_number || '-'}
-          </h2>
+        return (
+          <article
+            key={subscription.subscription_id}
+            className="rounded-xl border border-[color:rgba(0,0,128,0.14)] bg-[var(--white)] px-4 py-4 shadow-[0_6px_20px_rgba(0,0,128,0.07)]"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:rgba(0,0,128,0.62)]">
+              {subscription.status || '-'}
+            </p>
+            <h2 className="mt-1 text-lg font-bold text-[var(--navy)]">
+              {subscription.subscription_number || '-'}
+            </h2>
 
-          <dl className="mt-3 space-y-1.5 text-sm text-[color:rgba(0,0,128,0.82)]">
-            <div className="flex items-center justify-between gap-3">
-              <dt className="font-semibold text-[var(--navy)]">Plan</dt>
-              <dd>{subscription.plan || '-'}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="font-semibold text-[var(--navy)]">Recurring</dt>
-              <dd>{subscription.recurring || '-'}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="font-semibold text-[var(--navy)]">Next Invoice</dt>
-              <dd>{formatDate(subscription.next_invoice_date)}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="font-semibold text-[var(--navy)]">Quotation</dt>
-              <dd>{subscription.quotation_id || '-'}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="font-semibold text-[var(--navy)]">Payment Term</dt>
-              <dd>{subscription.payment_term_name || '-'}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="font-semibold text-[var(--navy)]">Products</dt>
-              <dd>{products.length}</dd>
-            </div>
-          </dl>
+            <dl className="mt-3 space-y-1.5 text-sm text-[color:rgba(0,0,128,0.82)]">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="font-semibold text-[var(--navy)]">Recurring Plan</dt>
+                <dd>{subscription.plan || '-'}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="font-semibold text-[var(--navy)]">Billing Period</dt>
+                <dd>{subscription.recurring || '-'}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="font-semibold text-[var(--navy)]">Next Invoice</dt>
+                <dd>{formatDate(subscription.next_invoice_date)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="font-semibold text-[var(--navy)]">Payment Term</dt>
+                <dd>{subscription.payment_term_name || '-'}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="font-semibold text-[var(--navy)]">Products</dt>
+                <dd>{products.length}</dd>
+              </div>
+            </dl>
 
-          {payment ? (
-            <div className="mt-3 rounded-lg border border-[color:rgba(0,0,128,0.12)] bg-[rgba(0,0,128,0.03)] px-3 py-2 text-xs text-[color:rgba(0,0,128,0.8)]">
-              <p><span className="font-semibold text-[var(--navy)]">Invoice:</span> {payment.invoice_number || '-'}</p>
-              <p className="mt-1"><span className="font-semibold text-[var(--navy)]">Amount:</span> {formatMoney(payment.payment_amount, payment.payment_currency)}</p>
-              <p className="mt-1"><span className="font-semibold text-[var(--navy)]">Date:</span> {formatDate(payment.payment_date)}</p>
+            {payment ? (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                <p><span className="font-semibold">Amount Paid:</span> {formatMoneyINR(payment.amount_inr)}</p>
+                <p className="mt-1"><span className="font-semibold">Status:</span> {payment.paypal_status || '-'}</p>
+                <p className="mt-1"><span className="font-semibold">Date:</span> {formatDate(payment.payment_date)}</p>
+              </div>
+            ) : null}
+
+            {/* Action buttons */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {!isQuotation && (
+                <button
+                  type="button"
+                  onClick={() => onDownloadInvoice?.(subscription)}
+                  className="inline-flex h-8 items-center rounded-lg border border-[color:rgba(0,0,128,0.2)] px-3 text-xs font-semibold text-[var(--navy)] transition-colors hover:border-[var(--orange)] hover:text-[var(--orange)]"
+                >
+                  📄 Download Invoice
+                </button>
+              )}
+
+              {isQuotation && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onDownloadQuotation?.(subscription)}
+                    className="inline-flex h-8 items-center rounded-lg border border-[color:rgba(0,0,128,0.2)] px-3 text-xs font-semibold text-[var(--navy)] transition-colors hover:border-[var(--orange)] hover:text-[var(--orange)]"
+                  >
+                    📄 Download Quotation
+                  </button>
+                  {subscription.status === 'Quotation Sent' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onQuotationAction?.(subscription.subscription_id, 'accept')}
+                        className="inline-flex h-8 items-center rounded-lg bg-emerald-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+                      >
+                        ✓ Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onQuotationAction?.(subscription.subscription_id, 'reject')}
+                        className="inline-flex h-8 items-center rounded-lg bg-red-500 px-4 text-xs font-semibold text-white transition-colors hover:bg-red-600"
+                      >
+                        ✕ Reject
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </div>
-          ) : null}
-        </article>
-          )
-        })()
-      ))}
+          </article>
+        )
+      })}
     </div>
   )
 }
@@ -119,52 +167,75 @@ function MySubscriptionPage() {
   const [quotationSubscriptions, setQuotationSubscriptions] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
 
   const hasSession = Boolean(getAuthSession()?.token)
 
-  useEffect(() => {
-    let isMounted = true
-
-    const fetchMySubscriptions = async () => {
-      if (!hasSession) {
-        setActiveSubscriptions([])
-        setQuotationSubscriptions([])
-        setErrorMessage('')
-        return
-      }
-
-      setIsLoading(true)
+  const fetchMySubscriptions = async () => {
+    if (!hasSession) {
+      setActiveSubscriptions([])
+      setQuotationSubscriptions([])
       setErrorMessage('')
-
-      try {
-        const response = await listMySubscriptions()
-        if (!isMounted) {
-          return
-        }
-
-        setActiveSubscriptions(Array.isArray(response?.active_subscriptions) ? response.active_subscriptions : [])
-        setQuotationSubscriptions(Array.isArray(response?.quotation_subscriptions) ? response.quotation_subscriptions : [])
-      } catch (error) {
-        if (!isMounted) {
-          return
-        }
-
-        setActiveSubscriptions([])
-        setQuotationSubscriptions([])
-        setErrorMessage(error.message)
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
-      }
+      return
     }
 
+    setIsLoading(true)
+    setErrorMessage('')
+
+    try {
+      const response = await listMySubscriptions()
+      setActiveSubscriptions(Array.isArray(response?.active_subscriptions) ? response.active_subscriptions : [])
+      setQuotationSubscriptions(Array.isArray(response?.quotation_subscriptions) ? response.quotation_subscriptions : [])
+    } catch (error) {
+      setActiveSubscriptions([])
+      setQuotationSubscriptions([])
+      setErrorMessage(error.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
     fetchMySubscriptions()
-
-    return () => {
-      isMounted = false
-    }
   }, [hasSession])
+
+  const handleQuotationAction = async (subscriptionId, action) => {
+    setActionMessage('')
+    try {
+      await respondToQuotation(subscriptionId, action)
+      setActionMessage(
+        action === 'accept'
+          ? 'Quotation accepted! Subscription is now active.'
+          : 'Quotation has been rejected.',
+      )
+      // Refresh the list
+      await fetchMySubscriptions()
+    } catch (error) {
+      setActionMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const handleInvoiceDownload = async (subscription) => {
+    setActionMessage('')
+
+    try {
+      const fallbackFileName = `Invoice-${subscription?.subscription_number || 'RecurIN'}.pdf`
+      await downloadMySubscriptionInvoicePdf(subscription?.subscription_id, fallbackFileName)
+    } catch (error) {
+      setActionMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const handleQuotationDownload = async (subscription) => {
+    setActionMessage('')
+
+    try {
+      const fallbackFileName = `Quotation-${subscription?.subscription_number || 'RecurIN'}.pdf`
+      await downloadMySubscriptionQuotationPdf(subscription?.subscription_id, fallbackFileName)
+    } catch (error) {
+      setActionMessage(`Error: ${error.message}`)
+    }
+  }
 
   const currentItems = useMemo(() => {
     return activeTab === TAB_ACTIVE ? activeSubscriptions : quotationSubscriptions
@@ -177,6 +248,12 @@ function MySubscriptionPage() {
         <p className="mt-2 text-sm text-[color:rgba(0,0,128,0.78)] sm:text-base">
           Track your currently active plans and quotations from one place.
         </p>
+
+        {actionMessage && (
+          <div className={`mt-4 rounded-xl px-4 py-3 text-sm font-medium ${actionMessage.startsWith('Error') ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+            {actionMessage}
+          </div>
+        )}
 
         {!hasSession ? (
           <div className="mt-6 rounded-xl border border-[color:rgba(0,0,128,0.14)] bg-[rgba(0,0,128,0.03)] px-4 py-5 text-sm text-[var(--navy)]">
@@ -229,6 +306,10 @@ function MySubscriptionPage() {
               ) : (
                 <SubscriptionCards
                   items={currentItems}
+                  isQuotation={activeTab === TAB_QUOTATIONS}
+                  onQuotationAction={handleQuotationAction}
+                  onDownloadInvoice={handleInvoiceDownload}
+                  onDownloadQuotation={handleQuotationDownload}
                   emptyMessage={
                     activeTab === TAB_ACTIVE
                       ? 'No active subscriptions available right now.'

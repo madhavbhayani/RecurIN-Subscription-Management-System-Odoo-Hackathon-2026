@@ -71,6 +71,8 @@ func normalizeSubscriptionStatus(status string) (models.SubscriptionStatus, bool
 		return models.SubscriptionStatusActive, true
 	case "confirmed":
 		return models.SubscriptionStatusConfirmed, true
+	case "cancelled", "canceled":
+		return models.SubscriptionStatusCancelled, true
 	default:
 		return "", false
 	}
@@ -104,7 +106,7 @@ func validateSubscriptionInput(input CreateSubscriptionInput) (CreateSubscriptio
 
 	normalizedStatus, validStatus := normalizeSubscriptionStatus(input.Status)
 	if !validStatus {
-		return CreateSubscriptionInput{}, ValidationError{Message: "Status must be Draft, Quotation Sent, Active, or Confirmed."}
+		return CreateSubscriptionInput{}, ValidationError{Message: "Status must be Draft, Quotation Sent, Active, Confirmed, or Cancelled."}
 	}
 
 	normalizedSalesPerson := strings.TrimSpace(input.OtherInfo.SalesPerson)
@@ -1117,13 +1119,14 @@ func fetchLatestSubscriptionPayment(
 	const query = `
 		SELECT
 			payment_id,
-			invoice_number,
 			paypal_payment_id,
 			paypal_payer_id,
 			paypal_capture_id,
 			paypal_status,
-			payment_amount::float8,
-			payment_currency,
+			amount_inr::float8,
+			amount_usd::float8,
+			currency_from,
+			currency_to,
 			payment_method,
 			payment_date,
 			raw_payload
@@ -1136,13 +1139,14 @@ func fetchLatestSubscriptionPayment(
 	var rawPayload []byte
 	if err := querier.QueryRow(ctx, query, subscriptionID).Scan(
 		&payment.PaymentID,
-		&payment.InvoiceNumber,
 		&payment.PayPalPaymentID,
 		&payment.PayPalPayerID,
 		&payment.PayPalCaptureID,
 		&payment.PayPalStatus,
-		&payment.PaymentAmount,
-		&payment.PaymentCurrency,
+		&payment.AmountINR,
+		&payment.AmountUSD,
+		&payment.CurrencyFrom,
+		&payment.CurrencyTo,
 		&payment.PaymentMethod,
 		&payment.PaymentDate,
 		&rawPayload,

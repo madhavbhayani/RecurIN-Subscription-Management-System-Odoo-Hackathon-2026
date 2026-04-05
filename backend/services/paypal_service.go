@@ -34,12 +34,13 @@ type PayPalCreateOrderResult struct {
 
 // PayPalCaptureOrderResult represents capture response metadata shown on success page.
 type PayPalCaptureOrderResult struct {
-	OrderID    string
-	CaptureID  string
-	Status     string
-	Amount     float64
-	Currency   string
-	PayerEmail string
+	OrderID         string
+	CaptureID       string
+	Status          string
+	Amount          float64
+	Currency        string
+	PayerEmail      string
+	SubscriptionIDs []string
 }
 
 // PayPalService handles create/capture operations against PayPal Orders API.
@@ -161,7 +162,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 		// xclick sandbox flow: PayerID is NOT returned in the redirect URL.
 		// The payment was already completed on PayPal's side via the xclick button.
 		// We directly persist the payment and create subscriptions.
-		log.Printf("[CAPTURE] xclick sandbox flow: PayerID is empty for payment %s — persisting directly", normalizedPaymentID)
+		log.Printf("[CAPTURE] xclick sandbox flow: PayerID is empty for payment %s - persisting directly", normalizedPaymentID)
 
 		// Fetch the payment details from PayPal REST API to verify it exists
 		var paymentAmount float64
@@ -225,7 +226,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 
 		log.Printf("[CAPTURE] Persisting xclick payment: userID=%s paymentID=%s amount=%.2f", normalizedUserID, normalizedPaymentID, paymentAmount)
 
-		if persistErr := service.persistCapturedPayment(
+		subscriptionIDs, persistErr := service.persistCapturedPayment(
 			ctx,
 			normalizedUserID,
 			normalizedPaymentID,
@@ -235,7 +236,8 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 			paymentAmount,
 			paymentCurrency,
 			rawPayload,
-		); persistErr != nil {
+		)
+		if persistErr != nil {
 			log.Printf("[CAPTURE] ERROR persisting xclick payment: %v", persistErr)
 			return PayPalCaptureOrderResult{}, persistErr
 		}
@@ -243,10 +245,11 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 		log.Printf("[CAPTURE] xclick payment persisted successfully for user %s", normalizedUserID)
 
 		return PayPalCaptureOrderResult{
-			OrderID:  normalizedPaymentID,
-			Status:   "COMPLETED",
-			Amount:   paymentAmount,
-			Currency: paymentCurrency,
+			OrderID:         normalizedPaymentID,
+			Status:          "COMPLETED",
+			Amount:          paymentAmount,
+			Currency:        paymentCurrency,
+			SubscriptionIDs: subscriptionIDs,
 		}, nil
 	}
 
@@ -330,6 +333,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 		captureStatus = strings.TrimSpace(responsePayload.Status)
 	}
 
+	subscriptionIDs := make([]string, 0)
 	if strings.EqualFold(captureStatus, "COMPLETED") {
 		// Persist the captured payment, create subscriptions, and clear cart (all in one transaction)
 		rawPayload, marshalErr := json.Marshal(responsePayload)
@@ -337,7 +341,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 			return PayPalCaptureOrderResult{}, fmt.Errorf("failed to encode paypal payment result: %w", marshalErr)
 		}
 
-		if persistErr := service.persistCapturedPayment(
+		persistedSubscriptionIDs, persistErr := service.persistCapturedPayment(
 			ctx,
 			normalizedUserID,
 			strings.TrimSpace(responsePayload.ID),
@@ -347,18 +351,22 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 			amountValue,
 			strings.TrimSpace(capture.Amount.CurrencyCode),
 			rawPayload,
-		); persistErr != nil {
+		)
+		if persistErr != nil {
 			return PayPalCaptureOrderResult{}, persistErr
 		}
+
+		subscriptionIDs = persistedSubscriptionIDs
 	}
 
 	return PayPalCaptureOrderResult{
-		OrderID:    responsePayload.ID,
-		CaptureID:  strings.TrimSpace(capture.ID),
-		Status:     captureStatus,
-		Amount:     amountValue,
-		Currency:   strings.TrimSpace(capture.Amount.CurrencyCode),
-		PayerEmail: strings.TrimSpace(responsePayload.Payer.EmailAddress),
+		OrderID:         responsePayload.ID,
+		CaptureID:       strings.TrimSpace(capture.ID),
+		Status:          captureStatus,
+		Amount:          amountValue,
+		Currency:        strings.TrimSpace(capture.Amount.CurrencyCode),
+		PayerEmail:      strings.TrimSpace(responsePayload.Payer.EmailAddress),
+		SubscriptionIDs: subscriptionIDs,
 	}, nil
 }
 
@@ -449,7 +457,7 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 	// the payment was likely completed through xclick. Bypass the error and persist directly.
 	if statusCode < 200 || statusCode >= 300 {
 		apiErr := parsePayPalAPIError(statusCode, responseBody)
-		log.Printf("[CAPTURE] Legacy execute returned error (status %d): %v — falling back to direct persist for xclick flow", statusCode, apiErr)
+		log.Printf("[CAPTURE] Legacy execute returned error (status %d): %v - falling back to direct persist for xclick flow", statusCode, apiErr)
 
 		// Fetch payment details via GET to check if it was created
 		var paymentAmount float64
@@ -492,18 +500,20 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 			"currency":   paymentCurrency,
 		})
 
-		if persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, "", "completed", paymentAmount, paymentCurrency, rawPayload); persistErr != nil {
+		subscriptionIDs, persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, "", "completed", paymentAmount, paymentCurrency, rawPayload)
+		if persistErr != nil {
 			log.Printf("[CAPTURE] ERROR persisting xclick fallback payment: %v", persistErr)
 			return PayPalCaptureOrderResult{}, persistErr
 		}
 
-		log.Printf("[CAPTURE] ✅ xclick fallback payment persisted successfully for user %s", userID)
+		log.Printf("[CAPTURE] xclick fallback payment persisted successfully for user %s", userID)
 
 		return PayPalCaptureOrderResult{
-			OrderID:  paymentID,
-			Status:   "COMPLETED",
-			Amount:   paymentAmount,
-			Currency: paymentCurrency,
+			OrderID:         paymentID,
+			Status:          "COMPLETED",
+			Amount:          paymentAmount,
+			Currency:        paymentCurrency,
+			SubscriptionIDs: subscriptionIDs,
 		}, nil
 	}
 
@@ -557,24 +567,29 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 		}
 	}
 
+	subscriptionIDs := make([]string, 0)
 	if strings.EqualFold(status, "approved") || strings.EqualFold(status, "completed") {
 		rawPayload, marshalErr := json.Marshal(responsePayload)
 		if marshalErr != nil {
 			return PayPalCaptureOrderResult{}, fmt.Errorf("failed to encode paypal payment result: %w", marshalErr)
 		}
 
-		if persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, captureID, status, amountValue, currency, rawPayload); persistErr != nil {
+		persistedSubscriptionIDs, persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, captureID, status, amountValue, currency, rawPayload)
+		if persistErr != nil {
 			return PayPalCaptureOrderResult{}, persistErr
 		}
+
+		subscriptionIDs = persistedSubscriptionIDs
 	}
 
 	return PayPalCaptureOrderResult{
-		OrderID:    strings.TrimSpace(responsePayload.ID),
-		CaptureID:  captureID,
-		Status:     status,
-		Amount:     amountValue,
-		Currency:   currency,
-		PayerEmail: strings.TrimSpace(responsePayload.Payer.PayerInfo.Email),
+		OrderID:         strings.TrimSpace(responsePayload.ID),
+		CaptureID:       captureID,
+		Status:          status,
+		Amount:          amountValue,
+		Currency:        currency,
+		PayerEmail:      strings.TrimSpace(responsePayload.Payer.PayerInfo.Email),
+		SubscriptionIDs: subscriptionIDs,
 	}, nil
 }
 

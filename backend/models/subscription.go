@@ -9,6 +9,7 @@ const (
 	SubscriptionStatusQuotationSent SubscriptionStatus = "Quotation Sent"
 	SubscriptionStatusActive        SubscriptionStatus = "Active"
 	SubscriptionStatusConfirmed     SubscriptionStatus = "Confirmed"
+	SubscriptionStatusCancelled     SubscriptionStatus = "Cancelled"
 )
 
 // Subscription stores the subscription module record details.
@@ -35,13 +36,14 @@ type Subscription struct {
 // SubscriptionPayment stores latest payment details tied to a subscription.
 type SubscriptionPayment struct {
 	PaymentID       string                 `json:"payment_id"`
-	InvoiceNumber   string                 `json:"invoice_number"`
 	PayPalPaymentID string                 `json:"paypal_payment_id"`
 	PayPalPayerID   *string                `json:"paypal_payer_id,omitempty"`
 	PayPalCaptureID *string                `json:"paypal_capture_id,omitempty"`
 	PayPalStatus    string                 `json:"paypal_status"`
-	PaymentAmount   float64                `json:"payment_amount"`
-	PaymentCurrency string                 `json:"payment_currency"`
+	AmountINR       float64                `json:"amount_inr"`
+	AmountUSD       float64                `json:"amount_usd"`
+	CurrencyFrom    string                 `json:"currency_from"`
+	CurrencyTo      string                 `json:"currency_to"`
 	PaymentMethod   string                 `json:"payment_method"`
 	PaymentDate     time.Time              `json:"payment_date"`
 	RawPayload      map[string]interface{} `json:"raw_payload,omitempty"`

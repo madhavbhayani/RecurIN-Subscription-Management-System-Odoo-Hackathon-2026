@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,7 +15,8 @@ import (
 
 // UserHandler handles user administration endpoints.
 type UserHandler struct {
-	userService *services.UserService
+	userService     *services.UserService
+	documentService *services.SubscriptionDocumentService
 }
 
 type userUpdateRequest struct {
@@ -28,8 +30,15 @@ type userAddressUpdateRequest struct {
 	Address string `json:"address"`
 }
 
-func NewUserHandler(userService *services.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+type quotationRespondRequest struct {
+	Action string `json:"action"`
+}
+
+func NewUserHandler(userService *services.UserService, documentService *services.SubscriptionDocumentService) *UserHandler {
+	return &UserHandler{
+		userService:     userService,
+		documentService: documentService,
+	}
 }
 
 func buildAdminUserResponse(user models.User) map[string]interface{} {
@@ -68,6 +77,10 @@ func (handler *UserHandler) writeUserError(writer http.ResponseWriter, err error
 	}
 	if errors.Is(err, services.ErrEmailAlreadyExists) {
 		http.Error(writer, "Email already exists.", http.StatusConflict)
+		return
+	}
+	if errors.Is(err, services.ErrSubscriptionNotFound) {
+		http.Error(writer, "Subscription not found.", http.StatusNotFound)
 		return
 	}
 
@@ -239,6 +252,11 @@ func (handler *UserHandler) HandleListMySubscriptions(writer http.ResponseWriter
 
 		if normalizedStatus == "draft" || strings.Contains(normalizedStatus, "quotation") {
 			quotationSubscriptionItems = append(quotationSubscriptionItems, item)
+			continue
+		}
+
+		if normalizedStatus == "cancelled" {
+			quotationSubscriptionItems = append(quotationSubscriptionItems, item)
 		}
 	}
 
@@ -274,5 +292,132 @@ func (handler *UserHandler) HandleUpdateMyAddress(writer http.ResponseWriter, re
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"message": "Address updated successfully.",
 		"user":    buildAdminUserResponse(updatedUser),
+	})
+}
+
+func buildPDFDownloadFileName(prefix, subscriptionNumber string) string {
+	normalizedNumber := strings.TrimSpace(subscriptionNumber)
+	if normalizedNumber == "" {
+		normalizedNumber = "RecurIN"
+	}
+
+	normalizedNumber = strings.ReplaceAll(normalizedNumber, " ", "-")
+	return fmt.Sprintf("%s-%s.pdf", prefix, normalizedNumber)
+}
+
+func writePDFDownloadResponse(writer http.ResponseWriter, fileName string, payload []byte) {
+	writer.Header().Set("Content-Type", "application/pdf")
+	writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(payload)
+}
+
+func (handler *UserHandler) HandleDownloadMyInvoicePDF(writer http.ResponseWriter, request *http.Request) {
+	userID, ok := getAuthenticatedUserID(request)
+	if !ok {
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	subscriptionID := strings.TrimSpace(request.PathValue("subscriptionID"))
+	if subscriptionID == "" {
+		http.Error(writer, "Subscription ID is required.", http.StatusBadRequest)
+		return
+	}
+
+	subscription, err := handler.userService.GetPortalSubscriptionByID(request.Context(), userID, subscriptionID)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+
+	if handler.documentService == nil {
+		http.Error(writer, "PDF document service is not configured.", http.StatusInternalServerError)
+		return
+	}
+
+	pdfBytes, err := handler.documentService.GenerateInvoicePDF(subscription)
+	if err != nil {
+		log.Printf("invoice pdf generation error: %v", err)
+		http.Error(writer, "Failed to generate invoice PDF.", http.StatusInternalServerError)
+		return
+	}
+
+	writePDFDownloadResponse(writer, buildPDFDownloadFileName("Invoice", subscription.SubscriptionNumber), pdfBytes)
+}
+
+func (handler *UserHandler) HandleDownloadMyQuotationPDF(writer http.ResponseWriter, request *http.Request) {
+	userID, ok := getAuthenticatedUserID(request)
+	if !ok {
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	subscriptionID := strings.TrimSpace(request.PathValue("subscriptionID"))
+	if subscriptionID == "" {
+		http.Error(writer, "Subscription ID is required.", http.StatusBadRequest)
+		return
+	}
+
+	subscription, err := handler.userService.GetPortalSubscriptionByID(request.Context(), userID, subscriptionID)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+
+	if handler.documentService == nil {
+		http.Error(writer, "PDF document service is not configured.", http.StatusInternalServerError)
+		return
+	}
+
+	pdfBytes, err := handler.documentService.GenerateQuotationPDF(subscription)
+	if err != nil {
+		log.Printf("quotation pdf generation error: %v", err)
+		http.Error(writer, "Failed to generate quotation PDF.", http.StatusInternalServerError)
+		return
+	}
+
+	writePDFDownloadResponse(writer, buildPDFDownloadFileName("Quotation", subscription.SubscriptionNumber), pdfBytes)
+}
+
+func (handler *UserHandler) HandleRespondToQuotation(writer http.ResponseWriter, request *http.Request) {
+	userID, ok := getAuthenticatedUserID(request)
+	if !ok {
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	subscriptionID := strings.TrimSpace(request.PathValue("subscriptionID"))
+	if subscriptionID == "" {
+		http.Error(writer, "Subscription ID is required.", http.StatusBadRequest)
+		return
+	}
+
+	defer request.Body.Close()
+
+	var payload quotationRespondRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		http.Error(writer, "Invalid request payload.", http.StatusBadRequest)
+		return
+	}
+
+	updatedStatus, err := handler.userService.RespondToQuotation(request.Context(), userID, subscriptionID, payload.Action)
+	if err != nil {
+		handler.writeUserError(writer, err)
+		return
+	}
+
+	responseMessage := "Quotation accepted successfully."
+	if updatedStatus == models.SubscriptionStatusCancelled {
+		responseMessage = "Quotation rejected successfully."
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"message":         responseMessage,
+		"subscription_id": subscriptionID,
+		"status":          string(updatedStatus),
 	})
 }

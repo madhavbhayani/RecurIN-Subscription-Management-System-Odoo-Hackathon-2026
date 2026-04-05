@@ -22,6 +22,7 @@ type SubscriptionQuoteNotifierConfig struct {
 	SMTPFromEmail   string
 	SMTPFromName    string
 	FrontendBaseURL string
+	PDFLogoPath     string
 }
 
 type SubscriptionQuoteNotifier struct {
@@ -32,6 +33,7 @@ type SubscriptionQuoteNotifier struct {
 	smtpFromEmail   string
 	smtpFromName    string
 	frontendBaseURL string
+	documentService *SubscriptionDocumentService
 	enabled         bool
 }
 
@@ -44,6 +46,7 @@ func NewSubscriptionQuoteNotifier(config SubscriptionQuoteNotifierConfig) *Subsc
 		smtpFromEmail:   strings.TrimSpace(config.SMTPFromEmail),
 		smtpFromName:    strings.TrimSpace(config.SMTPFromName),
 		frontendBaseURL: strings.TrimSpace(config.FrontendBaseURL),
+		documentService: NewSubscriptionDocumentService(config.PDFLogoPath),
 	}
 
 	if notifier.smtpFromName == "" {
@@ -250,7 +253,13 @@ func (notifier *SubscriptionQuoteNotifier) SendQuotationEmail(ctx context.Contex
 	default:
 	}
 
-	pdfContent, err := buildQuotationPDF(subscription, recipientName)
+	var pdfContent []byte
+	var err error
+	if notifier.documentService != nil {
+		pdfContent, err = notifier.documentService.GenerateQuotationPDF(subscription)
+	} else {
+		pdfContent, err = buildQuotationPDF(subscription, recipientName)
+	}
 	if err != nil {
 		return err
 	}

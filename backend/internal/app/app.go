@@ -53,6 +53,8 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	workerPool := queue.NewWorkerPool(cfg.QueueWorkerCount, cfg.QueueBufferSize)
 	workerPool.Start()
 	userService := services.NewUserService(dbPool)
+	subscriptionDocumentService := services.NewSubscriptionDocumentService(cfg.PDFLogoPath)
+	reportingService := services.NewReportingService(dbPool, cfg.PDFLogoPath)
 	attributeService := services.NewAttributeService(dbPool)
 	taxService := services.NewTaxService(dbPool)
 	productService := services.NewProductService(dbPool)
@@ -71,11 +73,12 @@ func NewApplication(ctx context.Context) (*Application, error) {
 		SMTPFromEmail:   cfg.SMTPFromEmail,
 		SMTPFromName:    cfg.SMTPFromName,
 		FrontendBaseURL: cfg.FrontendBaseURL,
+		PDFLogoPath:     cfg.PDFLogoPath,
 	})
 	subscriptionService := services.NewSubscriptionService(dbPool, quoteNotifier)
 
 	router := http.NewServeMux()
-	registerRoutes(router, dbPool, tokenManager, workerPool, userService, attributeService, taxService, productService, cartService, payPalService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
+	registerRoutes(router, dbPool, tokenManager, workerPool, userService, subscriptionDocumentService, reportingService, attributeService, taxService, productService, cartService, payPalService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
@@ -114,6 +117,8 @@ func registerRoutes(
 	tokenManager *auth.TokenManager,
 	workerPool *queue.WorkerPool,
 	userService *services.UserService,
+	subscriptionDocumentService *services.SubscriptionDocumentService,
+	reportingService *services.ReportingService,
 	attributeService *services.AttributeService,
 	taxService *services.TaxService,
 	productService *services.ProductService,
@@ -128,7 +133,7 @@ func registerRoutes(
 ) {
 	healthHandler := handlers.NewHealthHandler()
 	authHandler := handlers.NewAuthHandler(tokenManager, workerPool, userService)
-	userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService, subscriptionDocumentService)
 	attributeHandler := handlers.NewAttributeHandler(attributeService)
 	taxHandler := handlers.NewTaxHandler(taxService)
 	productHandler := handlers.NewProductHandler(productService)
@@ -140,6 +145,7 @@ func registerRoutes(
 	discountHandler := handlers.NewDiscountHandler(discountService)
 	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionService)
 	roleHandler := handlers.NewRoleHandler(roleService)
+	reportingHandler := handlers.NewReportingHandler(reportingService)
 
 	adminRoleRoute := func(handler http.Handler) http.Handler {
 		return auth.AuthMiddleware(tokenManager)(
@@ -180,9 +186,24 @@ func registerRoutes(
 	router.Handle("GET /api/v1/auth/me", authenticatedRoute)
 	router.Handle("GET /api/v1/users/me", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleGetMyProfile)))
 	router.Handle("GET /api/v1/users/me/subscriptions", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleListMySubscriptions)))
+	router.Handle("GET /api/v1/users/me/subscriptions/{subscriptionID}/invoice", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleDownloadMyInvoicePDF)))
+	router.Handle("GET /api/v1/users/me/subscriptions/{subscriptionID}/quotation", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleDownloadMyQuotationPDF)))
+	router.Handle("PATCH /api/v1/users/me/subscriptions/{subscriptionID}/respond", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleRespondToQuotation)))
 	router.Handle("PATCH /api/v1/users/me/address", authenticatedCartRoute(http.HandlerFunc(userHandler.HandleUpdateMyAddress)))
 
 	router.Handle("GET /api/v1/admin/ping", adminRoleRoute(http.HandlerFunc(authHandler.HandleAdminPing)))
+	router.Handle(
+		"GET /api/v1/admin/reporting/dashboard",
+		adminPermissionRoute(rbac.ResourceReporting, rbac.PermissionActionRead, http.HandlerFunc(reportingHandler.HandleGetDashboard)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/reporting/reports/sales",
+		adminPermissionRoute(rbac.ResourceReporting, rbac.PermissionActionRead, http.HandlerFunc(reportingHandler.HandleDownloadSalesReportPDF)),
+	)
+	router.Handle(
+		"GET /api/v1/admin/reporting/reports/modules",
+		adminPermissionRoute(rbac.ResourceReporting, rbac.PermissionActionRead, http.HandlerFunc(reportingHandler.HandleDownloadModuleFrequencyReportPDF)),
+	)
 
 	router.Handle(
 		"GET /api/v1/admin/users/customers",

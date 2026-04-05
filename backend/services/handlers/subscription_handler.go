@@ -290,13 +290,14 @@ func buildSubscriptionResponse(subscription models.Subscription) map[string]inte
 	if subscription.Payment != nil {
 		payment = map[string]interface{}{
 			"payment_id":        subscription.Payment.PaymentID,
-			"invoice_number":    subscription.Payment.InvoiceNumber,
 			"paypal_payment_id": subscription.Payment.PayPalPaymentID,
 			"paypal_payer_id":   subscription.Payment.PayPalPayerID,
 			"paypal_capture_id": subscription.Payment.PayPalCaptureID,
 			"paypal_status":     subscription.Payment.PayPalStatus,
-			"payment_amount":    subscription.Payment.PaymentAmount,
-			"payment_currency":  subscription.Payment.PaymentCurrency,
+			"amount_inr":        subscription.Payment.AmountINR,
+			"amount_usd":        subscription.Payment.AmountUSD,
+			"currency_from":     subscription.Payment.CurrencyFrom,
+			"currency_to":       subscription.Payment.CurrencyTo,
 			"payment_method":    subscription.Payment.PaymentMethod,
 			"payment_date":      subscription.Payment.PaymentDate.UTC().Format("2006-01-02T15:04:05Z07:00"),
 			"raw_payload":       subscription.Payment.RawPayload,

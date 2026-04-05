@@ -34,12 +34,12 @@ func (service *PayPalService) persistCapturedPayment(
 	amount float64,
 	currency string,
 	rawPayload []byte,
-) error {
+) ([]string, error) {
 	log.Printf("[PERSIST] persistCapturedPayment called: userID=%q paymentID=%q status=%q amount=%.2f", userID, paymentID, status, amount)
 
 	if service.cartService == nil || service.cartService.db == nil {
 		log.Printf("[PERSIST] ERROR: paypal service not initialized correctly")
-		return fmt.Errorf("paypal service is not initialized correctly")
+		return nil, fmt.Errorf("paypal service is not initialized correctly")
 	}
 
 	normalizedUserID := strings.TrimSpace(userID)
@@ -50,24 +50,24 @@ func (service *PayPalService) persistCapturedPayment(
 	}
 	if normalizedUserID == "" || normalizedPaymentID == "" {
 		log.Printf("[PERSIST] ERROR: missing userID or paymentID")
-		return ValidationError{Message: "User ID and payment ID are required for payment persistence."}
+		return nil, ValidationError{Message: "User ID and payment ID are required for payment persistence."}
 	}
 
 	alreadyRecorded, err := service.isPaymentAlreadyRecorded(ctx, normalizedUserID, normalizedPaymentID)
 	if err != nil {
 		log.Printf("[PERSIST] ERROR checking if payment already recorded: %v", err)
-		return err
+		return nil, err
 	}
 	if alreadyRecorded {
 		log.Printf("[PERSIST] Payment %s already recorded for user %s, skipping", normalizedPaymentID, normalizedUserID)
-		return nil
+		return service.listSubscriptionIDsByPaymentID(ctx, normalizedUserID, normalizedPaymentID)
 	}
 
 	// Get cart items BEFORE starting transaction to ensure we have them
 	cartItems, err := service.cartService.ListCartItems(ctx, normalizedUserID)
 	if err != nil {
 		log.Printf("[PERSIST] ERROR fetching cart items: %v", err)
-		return err
+		return nil, err
 	}
 	log.Printf("[PERSIST] Found %d cart items for user %s", len(cartItems), normalizedUserID)
 	for i, item := range cartItems {
@@ -77,7 +77,7 @@ func (service *PayPalService) persistCapturedPayment(
 	tx, err := service.cartService.db.Begin(ctx)
 	if err != nil {
 		log.Printf("[PERSIST] ERROR starting transaction: %v", err)
-		return fmt.Errorf("failed to start payment transaction: %w", err)
+		return nil, fmt.Errorf("failed to start payment transaction: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
@@ -86,7 +86,7 @@ func (service *PayPalService) persistCapturedPayment(
 	customerName, err := service.fetchCustomerNameTx(ctx, tx, normalizedUserID)
 	if err != nil {
 		log.Printf("[PERSIST] ERROR fetching customer name: %v", err)
-		return err
+		return nil, err
 	}
 	log.Printf("[PERSIST] Customer name: %q", customerName)
 
@@ -94,7 +94,7 @@ func (service *PayPalService) persistCapturedPayment(
 	groups, err := service.buildRecurringCartGroupsTx(ctx, tx, cartItems)
 	if err != nil {
 		log.Printf("[PERSIST] ERROR building recurring cart groups: %v", err)
-		return err
+		return nil, err
 	}
 	log.Printf("[PERSIST] Built %d recurring cart groups", len(groups))
 
@@ -102,7 +102,7 @@ func (service *PayPalService) persistCapturedPayment(
 	createdSubscriptionIDs, err := service.createConfirmedSubscriptionsTx(ctx, tx, normalizedUserID, customerName, groups)
 	if err != nil {
 		log.Printf("[PERSIST] ERROR creating confirmed subscriptions: %v", err)
-		return err
+		return nil, err
 	}
 	log.Printf("[PERSIST] Created %d subscriptions from recurring groups: %v", len(createdSubscriptionIDs), createdSubscriptionIDs)
 
@@ -112,7 +112,7 @@ func (service *PayPalService) persistCapturedPayment(
 		createdSubscriptionIDs, err = service.createSimpleSubscriptionsFromCartTx(ctx, tx, normalizedUserID, customerName, cartItems)
 		if err != nil {
 			log.Printf("[PERSIST] ERROR creating simple subscriptions: %v", err)
-			return err
+			return nil, err
 		}
 		log.Printf("[PERSIST] Created %d simple subscriptions: %v", len(createdSubscriptionIDs), createdSubscriptionIDs)
 	}
@@ -141,7 +141,7 @@ func (service *PayPalService) persistCapturedPayment(
 			rawPayload,
 		); err != nil {
 			log.Printf("[PERSIST] ERROR inserting standalone payment record: %v", err)
-			return err
+			return nil, err
 		}
 	} else {
 		// Insert a payment record for each created subscription
@@ -164,7 +164,7 @@ func (service *PayPalService) persistCapturedPayment(
 				rawPayload,
 			); err != nil {
 				log.Printf("[PERSIST] ERROR inserting payment record for subscription %s: %v", subscriptionIDCopy, err)
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -173,17 +173,17 @@ func (service *PayPalService) persistCapturedPayment(
 	log.Printf("[PERSIST] Clearing cart for user %s", normalizedUserID)
 	if _, err := tx.Exec(ctx, `DELETE FROM users.cart WHERE user_id = $1`, normalizedUserID); err != nil {
 		log.Printf("[PERSIST] ERROR clearing cart: %v", err)
-		return fmt.Errorf("failed to clear cart after successful payment: %w", err)
+		return nil, fmt.Errorf("failed to clear cart after successful payment: %w", err)
 	}
 
 	// Commit the transaction
 	if err := tx.Commit(ctx); err != nil {
 		log.Printf("[PERSIST] ERROR committing transaction: %v", err)
-		return fmt.Errorf("failed to commit payment transaction: %w", err)
+		return nil, fmt.Errorf("failed to commit payment transaction: %w", err)
 	}
 
 	log.Printf("[PERSIST] ✅ Payment persisted successfully: user=%s paymentID=%s subscriptions=%v", normalizedUserID, normalizedPaymentID, createdSubscriptionIDs)
-	return nil
+	return createdSubscriptionIDs, nil
 }
 
 func (service *PayPalService) isPaymentAlreadyRecorded(ctx context.Context, userID, paymentID string) (bool, error) {
@@ -204,6 +204,50 @@ func (service *PayPalService) isPaymentAlreadyRecorded(ctx context.Context, user
 	}
 
 	return exists, nil
+}
+
+func (service *PayPalService) listSubscriptionIDsByPaymentID(ctx context.Context, userID, paymentID string) ([]string, error) {
+	const query = `
+		SELECT subscription_id::text
+		FROM users.payments
+		WHERE user_id = $1
+		  AND paypal_payment_id = $2
+		  AND subscription_id IS NOT NULL
+		ORDER BY payment_date DESC`
+
+	rows, err := service.cartService.db.Query(ctx, query, userID, paymentID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), `relation "users.payments" does not exist`) {
+			return nil, ValidationError{Message: "users.payments schema is missing. Run backend migrations first."}
+		}
+		return nil, fmt.Errorf("failed to list subscriptions by payment id: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0)
+	seen := make(map[string]struct{})
+	for rows.Next() {
+		var subscriptionID string
+		if scanErr := rows.Scan(&subscriptionID); scanErr != nil {
+			return nil, fmt.Errorf("failed to scan subscription id row: %w", scanErr)
+		}
+
+		normalizedID := strings.TrimSpace(subscriptionID)
+		if normalizedID == "" {
+			continue
+		}
+		if _, exists := seen[normalizedID]; exists {
+			continue
+		}
+		seen[normalizedID] = struct{}{}
+		ids = append(ids, normalizedID)
+	}
+
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("failed while iterating subscription id rows: %w", rowsErr)
+	}
+
+	return ids, nil
 }
 
 func (service *PayPalService) fetchCustomerNameTx(ctx context.Context, tx pgx.Tx, userID string) (string, error) {

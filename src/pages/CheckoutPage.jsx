@@ -133,9 +133,37 @@ function CheckoutPage() {
       }
 
       try {
+        const snapshotItems = cartItems.map((item) => {
+          const quantity = Number(item?.quantity)
+          const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1
+          const unitPrice = Number(item?.unit_price)
+          const selectedVariantPrice = Number(item?.selected_variant_price)
+          const discountAmount = Number(item?.discount_amount)
+          const effectiveUnitPrice = Number(item?.effective_unit_price)
+          const lineTotal = Number(item?.line_total)
+
+          return {
+            product_id: item?.product_id || null,
+            product_name: item?.product_name || 'Product',
+            quantity: safeQuantity,
+            unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+            variant_extra_amount: Number.isFinite(selectedVariantPrice) ? selectedVariantPrice : 0,
+            discount_amount: Number.isFinite(discountAmount) ? discountAmount : 0,
+            effective_unit_price: Number.isFinite(effectiveUnitPrice) ? effectiveUnitPrice : 0,
+            tax_amount: 0,
+            total_amount: Number.isFinite(lineTotal) ? lineTotal : 0,
+            billing_period: item?.billing_period || '',
+            selected_variant_attribute_name: item?.selected_variant_attribute_name || null,
+          }
+        })
+
         const checkoutSnapshot = {
           amount_inr: Number(cartTotal.toFixed(2)),
-          item_count: cartItems.length,
+          currency: 'INR',
+          item_count: snapshotItems.length,
+          payment_method: 'PayPal',
+          address: normalizedAddress,
+          items: snapshotItems,
           created_at: new Date().toISOString(),
         }
         sessionStorage.setItem(CHECKOUT_SNAPSHOT_KEY, JSON.stringify(checkoutSnapshot))

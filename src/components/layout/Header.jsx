@@ -5,7 +5,6 @@ import { clearAuthSession, getAuthSession } from '../../services/session'
 import RecurInLogo from '../common/RecurInLogo'
 
 const baseAccountItems = [
-  { label: 'Account Options' },
   { label: 'Subscriptions', to: '/subscription' },
   { label: 'Cart', to: '/cart' },
 ]
