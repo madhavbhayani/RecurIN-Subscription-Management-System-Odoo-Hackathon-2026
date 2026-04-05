@@ -449,8 +449,8 @@ func (service *ReportingService) GetDashboard(ctx context.Context, months int) (
 	}, nil
 }
 
-func formatReportingAmountINR(value float64) string {
-	return fmt.Sprintf("INR %.2f", value)
+func formatReportingAmountUSD(value float64) string {
+	return fmt.Sprintf("$%.2f", value)
 }
 
 func (service *ReportingService) drawReportHeader(pdf *gofpdf.Fpdf, title, generatedAt string) {
@@ -512,7 +512,7 @@ func (service *ReportingService) GenerateSalesReportPDF(report AdminReportingDas
 		{Label: "Total Products", Value: fmt.Sprintf("%d", report.Summary.TotalProducts)},
 		{Label: "Total Subscriptions", Value: fmt.Sprintf("%d", report.Summary.TotalSubscriptions)},
 		{Label: "Total Payments", Value: fmt.Sprintf("%d", report.Summary.TotalPayments)},
-		{Label: "Total Revenue", Value: formatReportingAmountINR(report.Summary.TotalRevenueINR)},
+		{Label: "Total Revenue", Value: formatReportingAmountUSD(report.Summary.TotalRevenueINR)},
 	}
 
 	pdf.SetFillColor(243, 245, 251)
@@ -536,7 +536,7 @@ func (service *ReportingService) GenerateSalesReportPDF(report AdminReportingDas
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(243, 245, 251)
 	pdf.CellFormat(96, 8, "Period", "1", 0, "L", true, 0, "")
-	pdf.CellFormat(90, 8, "Revenue (INR)", "1", 1, "R", true, 0, "")
+	pdf.CellFormat(90, 8, "Revenue ($)", "1", 1, "R", true, 0, "")
 
 	pdf.SetFont("Arial", "", 9)
 	pdf.SetTextColor(42, 51, 84)
@@ -548,13 +548,13 @@ func (service *ReportingService) GenerateSalesReportPDF(report AdminReportingDas
 			pdf.SetFont("Arial", "B", 9)
 			pdf.SetFillColor(243, 245, 251)
 			pdf.CellFormat(96, 8, "Period", "1", 0, "L", true, 0, "")
-			pdf.CellFormat(90, 8, "Revenue (INR)", "1", 1, "R", true, 0, "")
+			pdf.CellFormat(90, 8, "Revenue ($)", "1", 1, "R", true, 0, "")
 			pdf.SetFont("Arial", "", 9)
 			pdf.SetTextColor(42, 51, 84)
 		}
 
 		pdf.CellFormat(96, 7, revenuePoint.PeriodLabel, "1", 0, "L", false, 0, "")
-		pdf.CellFormat(90, 7, formatReportingAmountINR(revenuePoint.RevenueINR), "1", 1, "R", false, 0, "")
+		pdf.CellFormat(90, 7, formatReportingAmountUSD(revenuePoint.RevenueINR), "1", 1, "R", false, 0, "")
 	}
 
 	pdf.Ln(3)

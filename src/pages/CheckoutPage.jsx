@@ -263,7 +263,7 @@ function CheckoutPage() {
 
         const checkoutSnapshot = {
           amount_inr: Number(checkoutTotal.toFixed(2)),
-          currency: 'INR',
+          currency: 'USD',
           item_count: snapshotItems.length,
           payment_method: 'PayPal',
           address: normalizedAddress,

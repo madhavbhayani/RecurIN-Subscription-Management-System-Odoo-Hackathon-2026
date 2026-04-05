@@ -40,21 +40,21 @@ function readCheckoutSnapshot() {
   }
 }
 
-function formatInrCurrency(value) {
+function formatUsdCurrency(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return 'INR 0.00'
+    return '$0.00'
   }
 
   try {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(numericValue)
   } catch {
-    return `INR ${numericValue.toFixed(2)}`
+    return `$${numericValue.toFixed(2)}`
   }
 }
 
@@ -87,7 +87,7 @@ function CheckoutSuccessPage() {
       ?? ''
   ).trim()
   const checkedOutAmount = Number(checkoutSnapshotRef.current?.amount_inr)
-  const amountInINR = Number.isFinite(checkedOutAmount) ? checkedOutAmount : Number(payment?.amount)
+  const amountInUSD = Number.isFinite(checkedOutAmount) ? checkedOutAmount : Number(payment?.amount)
   const capturedSubscriptionIDs = Array.isArray(payment?.subscription_ids) ? payment.subscription_ids : []
   const resolvedSubscriptionID = String(capturedSubscriptionIDs[0] ?? quotationSubscriptionID).trim()
 
@@ -186,7 +186,7 @@ function CheckoutSuccessPage() {
               <p><span className="font-semibold">Invoice Number:</span> {invoiceNumber || '-'}</p>
               <p><span className="font-semibold">Order ID:</span> {payment?.order_id || orderID || paymentID || '-'}</p>
               <p><span className="font-semibold">Status:</span> COMPLETED</p>
-              <p><span className="font-semibold">Amount:</span> {formatInrCurrency(amountInINR)}</p>
+              <p><span className="font-semibold">Amount:</span> {formatUsdCurrency(amountInUSD)}</p>
               <p><span className="font-semibold">Payment Date:</span> {displayedAt.toLocaleString()}</p>
             </div>
           </div>

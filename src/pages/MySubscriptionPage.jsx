@@ -29,21 +29,21 @@ function formatDate(dateValue) {
   })
 }
 
-function formatMoneyINR(amountValue) {
+function formatMoneyUSD(amountValue) {
   const numericValue = Number(amountValue)
   if (!Number.isFinite(numericValue)) {
-    return '₹0.00'
+    return '$0.00'
   }
 
   try {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(numericValue)
   } catch {
-    return `₹${numericValue.toFixed(2)}`
+    return `$${numericValue.toFixed(2)}`
   }
 }
 
@@ -106,7 +106,7 @@ function SubscriptionCards({
 
             {payment ? (
               <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                <p><span className="font-semibold">Amount Paid:</span> {formatMoneyINR(payment.amount_inr)}</p>
+                <p><span className="font-semibold">Amount Paid:</span> {formatMoneyUSD(payment.amount_inr)}</p>
                 <p className="mt-1"><span className="font-semibold">Status:</span> {payment.paypal_status || '-'}</p>
                 <p className="mt-1"><span className="font-semibold">Date:</span> {formatDate(payment.payment_date)}</p>
               </div>

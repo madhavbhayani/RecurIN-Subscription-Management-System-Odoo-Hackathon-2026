@@ -29,12 +29,12 @@ function drawRecurINLogo(doc, x, y) {
   doc.text('SUBSCRIPTION & MANAGEMENT', x + 18, y + 13)
 }
 
-function formatCurrencyINR(value) {
+function formatCurrencyUSD(value) {
   const num = Number(value)
-  if (!Number.isFinite(num)) return '₹0.00'
-  return new Intl.NumberFormat('en-IN', {
+  if (!Number.isFinite(num)) return '$0.00'
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'INR',
+    currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(num)
@@ -106,10 +106,10 @@ export function generateInvoicePdf(options = {}) {
     const tableBody = products.map((p) => [
       p.product_name || p.productName || '-',
       String(p.quantity ?? 1),
-      formatCurrencyINR(p.unit_price ?? p.unitPrice ?? 0),
-      formatCurrencyINR(p.discount_amount ?? p.discountAmount ?? 0),
-      formatCurrencyINR(p.tax_amount ?? p.taxAmount ?? 0),
-      formatCurrencyINR(p.total_amount ?? p.totalAmount ?? p.line_total ?? p.lineTotal ?? 0),
+      formatCurrencyUSD(p.unit_price ?? p.unitPrice ?? 0),
+      formatCurrencyUSD(p.discount_amount ?? p.discountAmount ?? 0),
+      formatCurrencyUSD(p.tax_amount ?? p.taxAmount ?? 0),
+      formatCurrencyUSD(p.total_amount ?? p.totalAmount ?? p.line_total ?? p.lineTotal ?? 0),
     ])
 
     const grandTotal = products.reduce((sum, p) => {
@@ -149,7 +149,7 @@ export function generateInvoicePdf(options = {}) {
     doc.setFontSize(11)
     doc.setTextColor(30, 44, 120)
     doc.text('Grand Total:', 120, finalY + 6)
-    doc.text(formatCurrencyINR(grandTotal), 182, finalY + 6, { align: 'right' })
+    doc.text(formatCurrencyUSD(grandTotal), 182, finalY + 6, { align: 'right' })
 
     // Payment details
     if (payment) {
@@ -164,7 +164,7 @@ export function generateInvoicePdf(options = {}) {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.setTextColor(60, 70, 100)
-      doc.text(`Amount Paid: ${formatCurrencyINR(payment.amount_inr ?? grandTotal)}`, 14, payY + 14)
+      doc.text(`Amount Paid: ${formatCurrencyUSD(payment.amount_inr ?? grandTotal)}`, 14, payY + 14)
       doc.text(`PayPal Status: ${payment.paypal_status || 'completed'}`, 14, payY + 20)
       doc.text(`Payment Date: ${payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('en-IN') : date}`, 14, payY + 26)
     }

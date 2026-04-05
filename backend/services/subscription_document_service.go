@@ -64,8 +64,8 @@ func resolveSubscriptionLogoPath(configuredLogoPath string) string {
 	return ""
 }
 
-func formatDocumentAmountINR(value float64) string {
-	return fmt.Sprintf("INR %.2f", value)
+func formatDocumentAmountUSD(value float64) string {
+	return fmt.Sprintf("$%.2f", value)
 }
 
 func formatDocumentDate(value time.Time) string {
@@ -184,10 +184,10 @@ func (service *SubscriptionDocumentService) drawProductsTable(pdf *gofpdf.Fpdf, 
 		pdf.SetX(12)
 		pdf.CellFormat(66, lineHeight, productName, "1", 0, "L", false, 0, "")
 		pdf.CellFormat(14, lineHeight, fmt.Sprintf("%d", normalizedQuantity), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(25, lineHeight, formatDocumentAmountINR(unitPrice), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(25, lineHeight, formatDocumentAmountINR(product.DiscountAmount), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(22, lineHeight, formatDocumentAmountINR(product.TaxAmount), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(28, lineHeight, formatDocumentAmountINR(lineTotal), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(25, lineHeight, formatDocumentAmountUSD(unitPrice), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(25, lineHeight, formatDocumentAmountUSD(product.DiscountAmount), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(22, lineHeight, formatDocumentAmountUSD(product.TaxAmount), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(28, lineHeight, formatDocumentAmountUSD(lineTotal), "1", 0, "R", false, 0, "")
 		pdf.Ln(-1)
 
 		grandTotal += lineTotal
@@ -268,7 +268,7 @@ func (service *SubscriptionDocumentService) GenerateQuotationPDF(subscription mo
 	pdf.SetTextColor(30, 44, 120)
 	pdf.SetX(12)
 	pdf.CellFormat(152, 9, "Grand Total", "1", 0, "R", false, 0, "")
-	pdf.CellFormat(28, 9, formatDocumentAmountINR(grandTotal), "1", 0, "R", false, 0, "")
+	pdf.CellFormat(28, 9, formatDocumentAmountUSD(grandTotal), "1", 0, "R", false, 0, "")
 	pdf.Ln(12)
 
 	if finalY > 270 {
@@ -304,7 +304,7 @@ func (service *SubscriptionDocumentService) GenerateInvoicePDF(subscription mode
 	pdf.SetTextColor(30, 44, 120)
 	pdf.SetX(12)
 	pdf.CellFormat(152, 9, "Grand Total", "1", 0, "R", false, 0, "")
-	pdf.CellFormat(28, 9, formatDocumentAmountINR(grandTotal), "1", 0, "R", false, 0, "")
+	pdf.CellFormat(28, 9, formatDocumentAmountUSD(grandTotal), "1", 0, "R", false, 0, "")
 	pdf.Ln(10)
 
 	paymentMethod := "PayPal"
@@ -340,7 +340,7 @@ func (service *SubscriptionDocumentService) GenerateInvoicePDF(subscription mode
 	pdf.SetFont("Arial", "", 9)
 	pdf.SetTextColor(60, 70, 100)
 	pdf.SetX(12)
-	pdf.CellFormat(180, 5.5, "Amount Paid: "+formatDocumentAmountINR(amountPaid), "", 0, "L", false, 0, "")
+	pdf.CellFormat(180, 5.5, "Amount Paid: "+formatDocumentAmountUSD(amountPaid), "", 0, "L", false, 0, "")
 	pdf.Ln(5.5)
 	pdf.SetX(12)
 	pdf.CellFormat(180, 5.5, "Payment Status: "+paymentStatus, "", 0, "L", false, 0, "")

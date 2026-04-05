@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listProductsPublic } from '../../services/productApi'
 
-const CURRENCY_SYMBOL = '\u20b9'
+const CURRENCY_SYMBOL = '$'
 
 const PRICE_RANGE_OPTIONS = [
   {
@@ -12,17 +12,17 @@ const PRICE_RANGE_OPTIONS = [
   },
   {
     value: 'under-1000',
-    label: 'Under INR 1,000',
+    label: 'Under $1,000',
     matches: (price) => price < 1000,
   },
   {
     value: '1000-5000',
-    label: 'INR 1,000 - INR 5,000',
+    label: '$1,000 - $5,000',
     matches: (price) => price >= 1000 && price <= 5000,
   },
   {
     value: '5000-plus',
-    label: 'Above INR 5,000',
+    label: 'Above $5,000',
     matches: (price) => price > 5000,
   },
 ]
@@ -30,10 +30,10 @@ const PRICE_RANGE_OPTIONS = [
 function formatPrice(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return `${CURRENCY_SYMBOL} 0.00`
+    return `${CURRENCY_SYMBOL}0.00`
   }
 
-  return `${CURRENCY_SYMBOL} ${numericValue.toFixed(2)}`
+  return `${CURRENCY_SYMBOL}${numericValue.toFixed(2)}`
 }
 
 function resolveStaticImageURL(product, index) {

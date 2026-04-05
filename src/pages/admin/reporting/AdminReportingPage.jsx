@@ -34,21 +34,21 @@ function formatCompactNumber(value) {
   }).format(numericValue)
 }
 
-function formatCurrencyINR(value) {
+function formatCurrencyUSD(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return 'INR 0.00'
+    return '$0.00'
   }
 
   try {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(numericValue)
   } catch {
-    return `INR ${numericValue.toFixed(2)}`
+    return `$${numericValue.toFixed(2)}`
   }
 }
 
@@ -157,7 +157,7 @@ function AdminReportingPage() {
       },
       {
         title: 'Revenue',
-        value: formatCurrencyINR(summary.total_revenue_inr),
+        value: formatCurrencyUSD(summary.total_revenue_inr),
         helper: 'Active + confirmed total',
         icon: FiTrendingUp,
       },
@@ -307,7 +307,7 @@ function AdminReportingPage() {
                             <div
                               className="w-full rounded-t bg-gradient-to-t from-[var(--orange)] to-[#ff9c56]"
                               style={{ height: `${fillHeight}%` }}
-                              title={`${trendPoint.period_label}: ${formatCurrencyINR(normalizedRevenue)}`}
+                              title={`${trendPoint.period_label}: ${formatCurrencyUSD(normalizedRevenue)}`}
                             ></div>
                             <span className="truncate text-[10px] font-semibold text-[color:rgba(0,0,128,0.65)]">
                               {trendPoint.period_label}
@@ -329,7 +329,7 @@ function AdminReportingPage() {
                           {revenueTrend.map((trendPoint) => (
                             <tr key={`row-${trendPoint.period_key}`} className="border-t border-[color:rgba(0,0,128,0.08)] text-[var(--navy)]">
                               <td className="px-3 py-2">{trendPoint.period_label}</td>
-                              <td className="px-3 py-2 text-right font-semibold">{formatCurrencyINR(trendPoint.revenue_inr)}</td>
+                              <td className="px-3 py-2 text-right font-semibold">{formatCurrencyUSD(trendPoint.revenue_inr)}</td>
                             </tr>
                           ))}
                         </tbody>

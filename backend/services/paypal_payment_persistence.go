@@ -810,16 +810,17 @@ func (service *PayPalService) insertPaymentRecordTx(
 		payload = []byte("{}")
 	}
 
-	// The actual DB schema uses amount_inr, amount_usd, currency_from, currency_to
-	// For xclick sandbox flow the amount comes in USD
+	// The DB schema retains legacy amount_inr/amount_usd column names.
+	// Values are stored from the captured payment amount and normalized currency metadata.
 	amountINR := paymentAmount
 	amountUSD := paymentAmount
-	currencyFrom := "INR"
+	currencyFrom := "USD"
 	currencyTo := "USD"
 
-	if strings.EqualFold(paymentCurrency, "USD") {
-		currencyFrom = "USD"
-		currencyTo = "USD"
+	normalizedPaymentCurrency := strings.ToUpper(strings.TrimSpace(paymentCurrency))
+	if normalizedPaymentCurrency != "" {
+		currencyFrom = normalizedPaymentCurrency
+		currencyTo = normalizedPaymentCurrency
 	}
 
 	const query = `

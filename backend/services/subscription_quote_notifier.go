@@ -65,8 +65,8 @@ func (notifier *SubscriptionQuoteNotifier) IsEnabled() bool {
 	return notifier != nil && notifier.enabled
 }
 
-func formatAmountINR(value float64) string {
-	return fmt.Sprintf("INR %.2f", value)
+func formatAmountUSD(value float64) string {
+	return fmt.Sprintf("$%.2f", value)
 }
 
 func wrapBase64Content(content string, lineSize int) string {
@@ -187,10 +187,10 @@ func buildQuotationPDF(subscription models.Subscription, recipientName string) (
 		pdf.SetX(12)
 		pdf.CellFormat(66, lineHeight, productName, "1", 0, "L", false, 0, "")
 		pdf.CellFormat(14, lineHeight, fmt.Sprintf("%d", product.Quantity), "1", 0, "C", false, 0, "")
-		pdf.CellFormat(25, lineHeight, formatAmountINR(product.UnitPrice), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(25, lineHeight, formatAmountINR(product.DiscountAmount), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(22, lineHeight, formatAmountINR(product.TaxAmount), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(28, lineHeight, formatAmountINR(product.TotalAmount), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(25, lineHeight, formatAmountUSD(product.UnitPrice), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(25, lineHeight, formatAmountUSD(product.DiscountAmount), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(22, lineHeight, formatAmountUSD(product.TaxAmount), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(28, lineHeight, formatAmountUSD(product.TotalAmount), "1", 0, "R", false, 0, "")
 		pdf.Ln(-1)
 
 		totalAmount += product.TotalAmount
@@ -200,7 +200,7 @@ func buildQuotationPDF(subscription models.Subscription, recipientName string) (
 	pdf.SetTextColor(30, 44, 120)
 	pdf.SetX(12)
 	pdf.CellFormat(152, 9, "Grand Total", "1", 0, "R", false, 0, "")
-	pdf.CellFormat(28, 9, formatAmountINR(totalAmount), "1", 0, "R", false, 0, "")
+	pdf.CellFormat(28, 9, formatAmountUSD(totalAmount), "1", 0, "R", false, 0, "")
 	pdf.Ln(12)
 
 	pdf.SetFont("Arial", "", 9)
