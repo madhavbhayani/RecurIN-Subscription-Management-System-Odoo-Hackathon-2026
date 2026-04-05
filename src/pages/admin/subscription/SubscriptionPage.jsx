@@ -197,7 +197,7 @@ function SubscriptionPage() {
 												<div className="space-y-1 text-xs">
 													<p className="font-semibold text-[var(--navy)]">{payment.invoice_number || '-'}</p>
 													<p className="text-[color:rgba(0,0,128,0.72)]">Date: {String(payment.payment_date || '-').slice(0, 10)}</p>
-													<p className="text-[color:rgba(0,0,128,0.72)]">{payment.payment_currency || 'USD'} {Number(payment.payment_amount || 0).toFixed(2)}</p>
+													<p className="text-[color:rgba(0,0,128,0.72)]">${Number(payment.payment_amount || 0).toFixed(2)}</p>
 												</div>
 											) : (
 												<span className="text-xs text-[color:rgba(0,0,128,0.62)]">No payment data</span>

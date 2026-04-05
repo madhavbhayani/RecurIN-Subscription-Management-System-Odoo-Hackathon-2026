@@ -15,7 +15,7 @@ const CHECKOUT_SNAPSHOT_KEY = 'recurin_checkout_snapshot'
 function formatUsdCurrency(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return 'USD 0.00'
+    return '$0.00'
   }
 
   return new Intl.NumberFormat('en-US', {
@@ -403,7 +403,7 @@ function CheckoutPage() {
 
               <div className="mt-4 rounded-lg border border-[color:rgba(0,0,128,0.14)] bg-[rgba(0,0,128,0.03)] px-4 py-3 text-sm text-[var(--navy)]">
                 <p className="flex items-center justify-between">
-                  <span className="font-semibold">Total Amount (USD)</span>
+                  <span className="font-semibold">Total Amount ($)</span>
                   <span className="text-base font-bold">{formatUsdCurrency(checkoutTotal)}</span>
                 </p>
               </div>
