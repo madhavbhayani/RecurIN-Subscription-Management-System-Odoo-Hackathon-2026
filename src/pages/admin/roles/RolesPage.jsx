@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router-dom'
+import Pagination from '../../../components/common/Pagination'
 import ToastMessage from '../../../components/common/ToastMessage'
 import { deleteRole, listRoles } from '../../../services/roleApi'
+import { buildPaginationState, createInitialPagination } from '../../../utils/pagination'
 import { PERMISSION_ACTIONS, ROLE_PERMISSION_RESOURCES, countPermissionToggles } from './permissions'
 
 const TOTAL_PERMISSION_TOGGLES = ROLE_PERMISSION_RESOURCES.length * PERMISSION_ACTIONS.length
@@ -32,6 +34,9 @@ function RolesPage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [roles, setRoles] = useState([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState(() => createInitialPagination())
+  const [refreshKey, setRefreshKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [toastVariant, setToastVariant] = useState('error')
@@ -41,6 +46,7 @@ function RolesPage() {
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
+      setCurrentPage(1)
     }, 300)
 
     return () => {
@@ -54,18 +60,25 @@ function RolesPage() {
     const fetchRoles = async () => {
       setIsLoading(true)
       try {
-        const response = await listRoles(searchTerm)
+        const response = await listRoles(searchTerm, currentPage)
         if (!isMounted) {
           return
         }
 
         setRoles(Array.isArray(response?.roles) ? response.roles : [])
+        const paginationState = buildPaginationState(response?.pagination, currentPage)
+        setPagination(paginationState)
+
+        if (paginationState.total_pages > 0 && currentPage > paginationState.total_pages) {
+          setCurrentPage(paginationState.total_pages)
+        }
       } catch (error) {
         if (!isMounted) {
           return
         }
 
         setRoles([])
+        setPagination(createInitialPagination(currentPage))
         setToastVariant('error')
         setToastMessage(error.message)
       } finally {
@@ -80,7 +93,7 @@ function RolesPage() {
     return () => {
       isMounted = false
     }
-  }, [searchTerm])
+  }, [searchTerm, currentPage, refreshKey])
 
   const handleOpenDeleteDialog = (role) => {
     if (role?.is_system) {
@@ -110,10 +123,10 @@ function RolesPage() {
     setIsDeleting(true)
     try {
       const response = await deleteRole(roleID)
-      setRoles((previousRoles) => previousRoles.filter((role) => role.role_id !== roleID))
       setToastVariant('success')
       setToastMessage(response?.message ?? 'Role deleted successfully.')
       setRolePendingDelete(null)
+      setRefreshKey((previousKey) => previousKey + 1)
     } catch (error) {
       setToastVariant('error')
       setToastMessage(error.message)
@@ -235,6 +248,13 @@ function RolesPage() {
           )}
         </div>
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={pagination.total_pages}
+        onPageChange={setCurrentPage}
+        isDisabled={isLoading}
+      />
 
       {rolePendingDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">

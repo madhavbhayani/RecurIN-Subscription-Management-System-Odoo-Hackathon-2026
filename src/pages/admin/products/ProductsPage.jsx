@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
+import Pagination from '../../../components/common/Pagination'
 import ToastMessage from '../../../components/common/ToastMessage'
 import { deleteProduct, listProducts } from '../../../services/productApi'
+import { buildPaginationState, createInitialPagination } from '../../../utils/pagination'
 
 const CURRENCY_SYMBOL = '$'
 
@@ -19,6 +21,9 @@ function ProductsPage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [products, setProducts] = useState([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState(() => createInitialPagination())
+  const [refreshKey, setRefreshKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [toastVariant, setToastVariant] = useState('error')
@@ -28,6 +33,7 @@ function ProductsPage() {
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
+      setCurrentPage(1)
     }, 300)
 
     return () => {
@@ -41,18 +47,25 @@ function ProductsPage() {
     const fetchProducts = async () => {
       setIsLoading(true)
       try {
-        const response = await listProducts(searchTerm)
+        const response = await listProducts(searchTerm, currentPage)
         if (!isMounted) {
           return
         }
 
         setProducts(Array.isArray(response?.products) ? response.products : [])
+        const paginationState = buildPaginationState(response?.pagination, currentPage)
+        setPagination(paginationState)
+
+        if (paginationState.total_pages > 0 && currentPage > paginationState.total_pages) {
+          setCurrentPage(paginationState.total_pages)
+        }
       } catch (error) {
         if (!isMounted) {
           return
         }
 
         setProducts([])
+        setPagination(createInitialPagination(currentPage))
         setToastVariant('error')
         setToastMessage(error.message)
       } finally {
@@ -67,7 +80,7 @@ function ProductsPage() {
     return () => {
       isMounted = false
     }
-  }, [searchTerm])
+  }, [searchTerm, currentPage, refreshKey])
 
   const handleOpenDeleteDialog = (product) => {
     setProductPendingDelete(product)
@@ -91,10 +104,10 @@ function ProductsPage() {
     setIsDeleting(true)
     try {
       const response = await deleteProduct(productID)
-      setProducts((previousProducts) => previousProducts.filter((product) => product.product_id !== productID))
       setToastVariant('success')
       setToastMessage(response?.message ?? 'Product deleted successfully.')
       setProductPendingDelete(null)
+      setRefreshKey((previousKey) => previousKey + 1)
     } catch (error) {
       setToastVariant('error')
       setToastMessage(error.message)
@@ -183,6 +196,13 @@ function ProductsPage() {
           </div>
         )}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={pagination.total_pages}
+        onPageChange={setCurrentPage}
+        isDisabled={isLoading}
+      />
 
       {productPendingDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">

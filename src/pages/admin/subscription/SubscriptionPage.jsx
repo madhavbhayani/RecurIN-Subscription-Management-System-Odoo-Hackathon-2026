@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
+import Pagination from '../../../components/common/Pagination'
 import ToastMessage from '../../../components/common/ToastMessage'
 import { deleteSubscription, listSubscriptions } from '../../../services/subscriptionApi'
+import { buildPaginationState, createInitialPagination } from '../../../utils/pagination'
 
 function getStatusMeta(status) {
 	const normalizedStatus = String(status ?? '').trim().toLowerCase()
@@ -45,6 +47,9 @@ function SubscriptionPage() {
 	const [searchInput, setSearchInput] = useState('')
 	const [searchTerm, setSearchTerm] = useState('')
 	const [subscriptions, setSubscriptions] = useState([])
+	const [currentPage, setCurrentPage] = useState(1)
+	const [pagination, setPagination] = useState(() => createInitialPagination())
+	const [refreshKey, setRefreshKey] = useState(0)
 	const [isLoading, setIsLoading] = useState(false)
 	const [toastMessage, setToastMessage] = useState('')
 	const [toastVariant, setToastVariant] = useState('error')
@@ -54,6 +59,7 @@ function SubscriptionPage() {
 	useEffect(() => {
 		const debounceTimer = window.setTimeout(() => {
 			setSearchTerm(searchInput.trim())
+			setCurrentPage(1)
 		}, 300)
 
 		return () => {
@@ -67,18 +73,25 @@ function SubscriptionPage() {
 		const fetchSubscriptions = async () => {
 			setIsLoading(true)
 			try {
-				const response = await listSubscriptions(searchTerm)
+				const response = await listSubscriptions(searchTerm, currentPage)
 				if (!isMounted) {
 					return
 				}
 
 				setSubscriptions(Array.isArray(response?.subscriptions) ? response.subscriptions : [])
+				const paginationState = buildPaginationState(response?.pagination, currentPage)
+				setPagination(paginationState)
+
+				if (paginationState.total_pages > 0 && currentPage > paginationState.total_pages) {
+					setCurrentPage(paginationState.total_pages)
+				}
 			} catch (error) {
 				if (!isMounted) {
 					return
 				}
 
 				setSubscriptions([])
+				setPagination(createInitialPagination(currentPage))
 				setToastVariant('error')
 				setToastMessage(error.message)
 			} finally {
@@ -93,7 +106,7 @@ function SubscriptionPage() {
 		return () => {
 			isMounted = false
 		}
-	}, [searchTerm])
+	}, [searchTerm, currentPage, refreshKey])
 
 	const handleOpenDeleteDialog = (subscription) => {
 		setSubscriptionPendingDelete(subscription)
@@ -117,12 +130,10 @@ function SubscriptionPage() {
 		setIsDeleting(true)
 		try {
 			const response = await deleteSubscription(subscriptionID)
-			setSubscriptions((previousSubscriptions) => (
-				previousSubscriptions.filter((subscription) => subscription.subscription_id !== subscriptionID)
-			))
 			setToastVariant('success')
 			setToastMessage(response?.message ?? 'Subscription deleted successfully.')
 			setSubscriptionPendingDelete(null)
+			setRefreshKey((previousKey) => previousKey + 1)
 		} catch (error) {
 			setToastVariant('error')
 			setToastMessage(error.message)
@@ -235,6 +246,13 @@ function SubscriptionPage() {
 					)}
 				</div>
 			</div>
+
+			<Pagination
+				currentPage={currentPage}
+				totalPages={pagination.total_pages}
+				onPageChange={setCurrentPage}
+				isDisabled={isLoading}
+			/>
 
 			{subscriptionPendingDelete && (
 				<div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">
