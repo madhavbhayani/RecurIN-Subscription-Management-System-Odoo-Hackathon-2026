@@ -4,15 +4,15 @@ import ToastMessage from '../components/common/ToastMessage'
 import { deleteCartItem, listCartItems, updateCartItemQuantity } from '../services/cartApi'
 import { getAuthSession } from '../services/session'
 
-const CURRENCY_SYMBOL = '\u20b9'
+const CURRENCY_SYMBOL = '$'
 
 function formatPrice(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return `${CURRENCY_SYMBOL} 0.00`
+    return `${CURRENCY_SYMBOL}0.00`
   }
 
-  return `${CURRENCY_SYMBOL} ${numericValue.toFixed(2)}`
+  return `${CURRENCY_SYMBOL}${numericValue.toFixed(2)}`
 }
 
 function CartPage() {

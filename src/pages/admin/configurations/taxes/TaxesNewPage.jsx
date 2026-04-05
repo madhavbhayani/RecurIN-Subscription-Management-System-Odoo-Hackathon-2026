@@ -11,8 +11,8 @@ const TAX_COMPUTATION_UNITS = [
   },
   {
     value: 'Fixed Price',
-    label: 'Fixed Price (build)',
-    symbol: 'build',
+    label: 'Fixed Price ($)',
+    symbol: '$',
   },
 ]
 

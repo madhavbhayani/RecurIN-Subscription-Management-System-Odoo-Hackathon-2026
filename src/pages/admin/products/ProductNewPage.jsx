@@ -9,7 +9,7 @@ import { listRecurringPlans } from '../../../services/recurringPlanApi'
 import { listTaxes } from '../../../services/taxApi'
 
 const PRODUCT_TYPES = ['Service', 'Goods']
-const CURRENCY_SYMBOL = 'build'
+const CURRENCY_SYMBOL = '$'
 
 function formatDecimalValue(value) {
   const numericValue = Number(value)
@@ -32,7 +32,7 @@ function buildTaxOptions(taxes) {
       valueLabel = `${taxValue}%`
     }
     if (taxUnit === 'Fixed Price') {
-      valueLabel = `${CURRENCY_SYMBOL} ${taxValue}`
+      valueLabel = `${CURRENCY_SYMBOL}${taxValue}`
     }
 
     return {
@@ -56,7 +56,7 @@ function buildDiscountOptions(discounts) {
       valueLabel = `${discountValue}%`
     }
     if (discountUnit === 'Fixed Price') {
-      valueLabel = `${CURRENCY_SYMBOL} ${discountValue}`
+      valueLabel = `${CURRENCY_SYMBOL}${discountValue}`
     }
 
     return {

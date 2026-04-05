@@ -19,14 +19,14 @@ function formatDiscountValue(discountUnit, discountValue) {
   }
 
   if (discountUnit === 'Fixed Price') {
-    return `build ${formatAmount(discountValue)}`
+    return `$${formatAmount(discountValue)}`
   }
 
   return formatAmount(discountValue)
 }
 
 function formatPurchaseRange(minimumPurchase, maximumPurchase) {
-  return `build ${formatAmount(minimumPurchase)} - build ${formatAmount(maximumPurchase)}`
+  return `$${formatAmount(minimumPurchase)} - $${formatAmount(maximumPurchase)}`
 }
 
 function formatLimitUsage(discount) {

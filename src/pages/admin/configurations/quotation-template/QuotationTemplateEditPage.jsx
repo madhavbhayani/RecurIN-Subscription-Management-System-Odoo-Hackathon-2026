@@ -61,10 +61,10 @@ function mapProductsToOptions(products) {
 function formatSalesPrice(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return 'build 0.00'
+    return '$0.00'
   }
 
-  return `build ${numericValue.toFixed(2)}`
+  return `$${numericValue.toFixed(2)}`
 }
 
 function QuotationTemplateEditPage() {

@@ -4,7 +4,7 @@ import ToastMessage from '../../../../components/common/ToastMessage'
 import { getRecurringPlanById, updateRecurringPlan } from '../../../../services/recurringPlanApi'
 
 const BILLING_PERIODS = ['Daily', 'Weekly', 'Monthly', 'Yearly']
-const CURRENCY_SYMBOL = 'build'
+const CURRENCY_SYMBOL = '$'
 
 const BILLING_PERIOD_LIMITS = {
   Daily: { min: 1, max: 365, unit: 'day(s)' },
@@ -390,7 +390,7 @@ function RecurringPlanEditPage() {
                     <div key={product.value} className="grid grid-cols-[1.4fr_1fr_1fr_1fr] text-sm text-red-600">
                       <div className="border-r border-dashed border-red-300 px-4 py-3">{product.productName}</div>
                       <div className="border-r border-dashed border-red-300 px-4 py-3">{product.productType || '-'}</div>
-                      <div className="border-r border-dashed border-red-300 px-4 py-3">{CURRENCY_SYMBOL} {product.salesPrice}</div>
+                      <div className="border-r border-dashed border-red-300 px-4 py-3">{CURRENCY_SYMBOL}{product.salesPrice}</div>
                       <div className="px-4 py-3">{product.minQty}</div>
                     </div>
                   ))}

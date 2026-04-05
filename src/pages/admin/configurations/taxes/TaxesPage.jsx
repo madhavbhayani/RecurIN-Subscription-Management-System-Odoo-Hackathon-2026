@@ -6,8 +6,8 @@ import { deleteTax, listTaxes } from '../../../../services/taxApi'
 
 const TAX_UNIT_META = {
   'Fixed Price': {
-    label: 'Fixed Price (build)',
-    symbol: 'build',
+    label: 'Fixed Price ($)',
+    symbol: '$',
   },
   Percentage: {
     label: 'Percentage (%)',
@@ -35,8 +35,8 @@ function formatTaxValueWithUnit(value, taxComputationUnit) {
   const formattedValue = formatTaxValue(value)
   const { symbol } = getTaxUnitMeta(taxComputationUnit)
 
-  if (symbol === 'build') {
-    return `${symbol} ${formattedValue}`
+  if (symbol === '$') {
+    return `${symbol}${formattedValue}`
   }
   if (symbol === '%') {
     return `${formattedValue}${symbol}`

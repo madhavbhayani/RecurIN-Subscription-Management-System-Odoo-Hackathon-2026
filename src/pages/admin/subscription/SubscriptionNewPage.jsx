@@ -23,10 +23,10 @@ const INFO_TAB_OTHER = 'other'
 function formatCurrency(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return 'build 0.00'
+    return '$0.00'
   }
 
-  return `build ${numericValue.toFixed(2)}`
+  return `$${numericValue.toFixed(2)}`
 }
 
 function roundToTwo(value) {
@@ -145,7 +145,7 @@ function getVariantValueOptionsForProduct(productDetails, attributeValuesByAttri
       }
 
       const normalizedExtraPrice = Number.isFinite(defaultExtraPrice) ? Math.max(defaultExtraPrice, 0) : 0
-      const priceSuffix = normalizedExtraPrice > 0 ? ` (+build ${normalizedExtraPrice.toFixed(2)})` : ' (+build 0.00)'
+      const priceSuffix = normalizedExtraPrice > 0 ? ` (+$${normalizedExtraPrice.toFixed(2)})` : ' (+$0.00)'
 
       options.push({
         value: variantValueID,

@@ -5,15 +5,15 @@ import { addCartItem } from '../../services/cartApi'
 import { listProductsPublic } from '../../services/productApi'
 import { getAuthSession } from '../../services/session'
 
-const CURRENCY_SYMBOL = 'build'
+const CURRENCY_SYMBOL = '$'
 
 function formatPrice(value) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) {
-    return `${CURRENCY_SYMBOL} 0.00`
+    return `${CURRENCY_SYMBOL}0.00`
   }
 
-  return `${CURRENCY_SYMBOL} ${numericValue.toFixed(2)}`
+  return `${CURRENCY_SYMBOL}${numericValue.toFixed(2)}`
 }
 
 function resolveStaticImageURL(product) {
