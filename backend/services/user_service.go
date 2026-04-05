@@ -344,7 +344,7 @@ func (service *UserService) ListActiveSubscriptionsByUserID(ctx context.Context,
 			rp.recurring_name,
 			s.status
 		FROM subscription.subscriptions s
-		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		WHERE s.customer_id = $1
 		  AND s.status IN ('Active', 'Confirmed')
 		ORDER BY s.next_invoice_date ASC, s.created_at DESC`
@@ -393,7 +393,7 @@ func (service *UserService) ListPortalSubscriptionsByUserID(ctx context.Context,
 			rp.recurring_name,
 			s.status
 		FROM subscription.subscriptions s
-		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		WHERE s.customer_id = $1
 		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed')
 		ORDER BY s.updated_at DESC, s.created_at DESC`
@@ -450,7 +450,7 @@ func (service *UserService) ListPortalSubscriptionsDetailedByUserID(ctx context.
 			s.created_at,
 			s.updated_at
 		FROM subscription.subscriptions s
-		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = s.payment_term_id
 		WHERE s.customer_id = $1
 		  AND s.status IN ('Draft', 'Quotation Sent', 'Active', 'Confirmed')

@@ -60,15 +60,21 @@ func (handler *PaymentHandler) HandleCapturePayPalOrder(writer http.ResponseWrit
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {
+		log.Printf("[HANDLER] Invalid capture payload from user %s: %v", userID, err)
 		http.Error(writer, "Invalid request payload.", http.StatusBadRequest)
 		return
 	}
 
+	log.Printf("[HANDLER] HandleCapturePayPalOrder: userID=%s orderID=%q paymentID=%q payerID=%q", userID, payload.OrderID, payload.PaymentID, payload.PayerID)
+
 	captureResult, err := handler.payPalService.CaptureOrder(request.Context(), userID, payload.OrderID, payload.PaymentID, payload.PayerID)
 	if err != nil {
+		log.Printf("[HANDLER] CaptureOrder error for user %s: %v", userID, err)
 		handler.writePaymentError(writer, err)
 		return
 	}
+
+	log.Printf("[HANDLER] CaptureOrder success: status=%s orderID=%s captureID=%s amount=%.2f", captureResult.Status, captureResult.OrderID, captureResult.CaptureID, captureResult.Amount)
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
 		"message": "Payment captured successfully.",

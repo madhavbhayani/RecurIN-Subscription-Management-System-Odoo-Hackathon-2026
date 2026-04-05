@@ -110,11 +110,13 @@ function CheckoutSuccessPage() {
 
     const capturePayment = async () => {
       if (!hasSession) {
+        console.log('[CAPTURE] No session, skipping capture')
         return
       }
 
       try {
         if (!orderID && !paymentID) {
+          console.log('[CAPTURE] No orderID or paymentID found in URL params')
           return
         }
 
@@ -122,13 +124,18 @@ function CheckoutSuccessPage() {
           ? { payment_id: paymentID, payer_id: payerID }
           : { order_id: orderID }
 
+        console.log('[CAPTURE] URL params:', { orderID, paymentID, payerID })
+        console.log('[CAPTURE] Sending capture request with payload:', JSON.stringify(payload))
+
         const response = await capturePayPalCheckoutOrder(payload)
         if (!isMounted) {
           return
         }
 
+        console.log('[CAPTURE] Capture response:', JSON.stringify(response))
         setPayment(response?.payment ?? null)
       } catch (error) {
+        console.error('[CAPTURE] ERROR capturing payment:', error?.message || error)
         if (!isMounted) {
           return
         }
@@ -155,6 +162,7 @@ function CheckoutSuccessPage() {
             Please log in first.
           </div>
         ) : (
+          <>
           <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-800">
             <p className="text-base font-bold">Payment completed successfully.</p>
 
@@ -166,6 +174,12 @@ function CheckoutSuccessPage() {
               <p><span className="font-semibold">Payment Date:</span> {displayedAt.toLocaleString()}</p>
             </div>
           </div>
+
+          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-800">
+            <p className="font-bold">Subscription Created</p>
+            <p className="mt-1">Your subscription has been automatically activated based on your cart items. You can view and manage it from the My Subscriptions page.</p>
+          </div>
+          </>
         )}
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -183,10 +197,10 @@ function CheckoutSuccessPage() {
             Back to Shop
           </Link>
           <Link
-            to="/cart"
+            to="/my-subscriptions"
             className="inline-flex h-10 items-center rounded-lg bg-[var(--orange)] px-4 text-sm font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
           >
-            View Cart
+            View My Subscriptions
           </Link>
         </div>
       </section>

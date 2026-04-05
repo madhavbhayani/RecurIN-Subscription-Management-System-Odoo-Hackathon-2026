@@ -27,7 +27,7 @@ type UserSubscriptionSummary struct {
 	SubscriptionID     string    `json:"subscription_id"`
 	SubscriptionNumber string    `json:"subscription_number"`
 	NextInvoiceDate    time.Time `json:"next_invoice_date"`
-	Recurring          string    `json:"recurring"`
-	Plan               string    `json:"plan"`
+	Recurring          *string   `json:"recurring,omitempty"`
+	Plan               *string   `json:"plan,omitempty"`
 	Status             string    `json:"status"`
 }

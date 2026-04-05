@@ -262,6 +262,9 @@ type productTaxRate struct {
 
 func scanSubscriptionRow(row pgx.Row) (models.Subscription, error) {
 	var subscription models.Subscription
+	var recurring *string
+	var plan *string
+	var recurringPlanID *string
 	var paymentTermID *string
 	var paymentTermName *string
 	var quotationID *string
@@ -272,9 +275,9 @@ func scanSubscriptionRow(row pgx.Row) (models.Subscription, error) {
 		&subscription.CustomerID,
 		&subscription.CustomerName,
 		&subscription.NextInvoiceDate,
-		&subscription.Recurring,
-		&subscription.Plan,
-		&subscription.RecurringPlanID,
+		&recurring,
+		&plan,
+		&recurringPlanID,
 		&paymentTermID,
 		&paymentTermName,
 		&quotationID,
@@ -285,6 +288,9 @@ func scanSubscriptionRow(row pgx.Row) (models.Subscription, error) {
 		return models.Subscription{}, err
 	}
 
+	subscription.Recurring = recurring
+	subscription.Plan = plan
+	subscription.RecurringPlanID = recurringPlanID
 	subscription.PaymentTermID = paymentTermID
 	subscription.PaymentTermName = paymentTermName
 	subscription.QuotationID = quotationID
@@ -829,7 +835,7 @@ func (service *SubscriptionService) CreateSubscription(ctx context.Context, inpu
 			i.created_at,
 			i.updated_at
 		FROM inserted i
-		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = i.recurring_plan_id
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = i.recurring_plan_id
 		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = i.payment_term_id`
 
 	subscription, err := scanSubscriptionRow(tx.QueryRow(
@@ -907,7 +913,7 @@ func (service *SubscriptionService) ListSubscriptions(ctx context.Context, searc
 			s.created_at,
 			s.updated_at
 		FROM subscription.subscriptions s
-		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = s.payment_term_id
 		WHERE (
 			$1 = ''
@@ -1183,7 +1189,7 @@ func (service *SubscriptionService) GetSubscriptionByID(ctx context.Context, sub
 			s.created_at,
 			s.updated_at
 		FROM subscription.subscriptions s
-		JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
+		LEFT JOIN recurring_plans.recurring_plan_data rp ON rp.recurring_plan_id = s.recurring_plan_id
 		LEFT JOIN payment_term.payment_term_data pt ON pt.payment_term_id = s.payment_term_id
 		WHERE s.subscription_id = $1`
 

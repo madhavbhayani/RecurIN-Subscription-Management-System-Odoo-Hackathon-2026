@@ -125,8 +125,17 @@ func drawSubscriptionSummary(pdf *gofpdf.Fpdf, subscription models.Subscription,
 	pdf.SetXY(12, 60)
 	pdf.CellFormat(120, 6, "Next Invoice Date: "+subscription.NextInvoiceDate.Format("2006-01-02"), "", 0, "L", false, 0, "")
 
+	recurringText := "N/A"
+	if subscription.Recurring != nil {
+		recurringText = *subscription.Recurring
+	}
+	planText := "N/A"
+	if subscription.Plan != nil {
+		planText = *subscription.Plan
+	}
+
 	pdf.SetXY(12, 66)
-	pdf.CellFormat(120, 6, "Recurring: "+subscription.Recurring+" - "+subscription.Plan, "", 0, "L", false, 0, "")
+	pdf.CellFormat(120, 6, "Recurring: "+recurringText+" - "+planText, "", 0, "L", false, 0, "")
 }
 
 func drawProductTableHeader(pdf *gofpdf.Fpdf, startY float64) {

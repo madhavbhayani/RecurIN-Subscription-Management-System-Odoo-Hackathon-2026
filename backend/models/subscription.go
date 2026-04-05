@@ -18,9 +18,9 @@ type Subscription struct {
 	CustomerID         string                 `json:"customer_id"`
 	CustomerName       string                 `json:"customer_name"`
 	NextInvoiceDate    time.Time              `json:"next_invoice_date"`
-	Recurring          string                 `json:"recurring"`
-	Plan               string                 `json:"plan"`
-	RecurringPlanID    string                 `json:"recurring_plan_id"`
+	Recurring          *string                `json:"recurring,omitempty"`
+	Plan               *string                `json:"plan,omitempty"`
+	RecurringPlanID    *string                `json:"recurring_plan_id,omitempty"`
 	PaymentTermID      *string                `json:"payment_term_id,omitempty"`
 	PaymentTermName    *string                `json:"payment_term_name,omitempty"`
 	QuotationID        *string                `json:"quotation_id,omitempty"`
