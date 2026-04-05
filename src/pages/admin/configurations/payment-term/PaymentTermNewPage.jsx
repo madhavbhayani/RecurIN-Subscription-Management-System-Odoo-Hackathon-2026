@@ -11,8 +11,8 @@ const DUE_UNITS = [
   },
   {
     value: 'Fixed Price',
-    label: 'Fixed Price (\u20b9)',
-    symbol: '\u20b9',
+    label: 'Fixed Price (build)',
+    symbol: 'build',
   },
 ]
 

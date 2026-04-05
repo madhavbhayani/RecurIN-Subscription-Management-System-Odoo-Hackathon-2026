@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import ToastMessage from '../../../components/common/ToastMessage'
 import { deleteProduct, listProducts } from '../../../services/productApi'
 
-const CURRENCY_SYMBOL = '\u20b9'
+const CURRENCY_SYMBOL = 'build'
 
 function formatPrice(value) {
   const numericValue = Number(value)

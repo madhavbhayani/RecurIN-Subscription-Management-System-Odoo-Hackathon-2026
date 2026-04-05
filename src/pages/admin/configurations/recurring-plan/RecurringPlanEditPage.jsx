@@ -4,7 +4,7 @@ import ToastMessage from '../../../../components/common/ToastMessage'
 import { getRecurringPlanById, updateRecurringPlan } from '../../../../services/recurringPlanApi'
 
 const BILLING_PERIODS = ['Daily', 'Weekly', 'Monthly', 'Yearly']
-const CURRENCY_SYMBOL = '\u20b9'
+const CURRENCY_SYMBOL = 'build'
 
 const BILLING_PERIOD_LIMITS = {
   Daily: { min: 1, max: 365, unit: 'day(s)' },

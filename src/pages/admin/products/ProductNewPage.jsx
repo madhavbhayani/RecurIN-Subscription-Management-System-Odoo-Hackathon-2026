@@ -9,7 +9,7 @@ import { listRecurringPlans } from '../../../services/recurringPlanApi'
 import { listTaxes } from '../../../services/taxApi'
 
 const PRODUCT_TYPES = ['Service', 'Goods']
-const CURRENCY_SYMBOL = '\u20b9'
+const CURRENCY_SYMBOL = 'build'
 
 function formatDecimalValue(value) {
   const numericValue = Number(value)

@@ -5,7 +5,7 @@ import { addCartItem } from '../../services/cartApi'
 import { listProductsPublic } from '../../services/productApi'
 import { getAuthSession } from '../../services/session'
 
-const CURRENCY_SYMBOL = '\u20b9'
+const CURRENCY_SYMBOL = 'build'
 
 function formatPrice(value) {
   const numericValue = Number(value)

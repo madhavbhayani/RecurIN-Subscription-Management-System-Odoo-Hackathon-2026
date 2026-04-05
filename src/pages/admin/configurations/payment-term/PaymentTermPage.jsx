@@ -13,7 +13,7 @@ function formatDueValue(dueUnit, dueValue) {
   }
 
   if (dueUnit === 'Fixed Price') {
-    return `\u20b9 ${formattedValue}`
+    return `build ${formattedValue}`
   }
 
   return formattedValue
