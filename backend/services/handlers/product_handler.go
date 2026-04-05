@@ -106,7 +106,7 @@ func (handler *ProductHandler) HandleListProducts(writer http.ResponseWriter, re
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"products":    items,
+		"products":   items,
 		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }

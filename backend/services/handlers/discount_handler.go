@@ -138,7 +138,7 @@ func (handler *DiscountHandler) HandleListDiscounts(writer http.ResponseWriter, 
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"discounts":   items,
+		"discounts":  items,
 		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }

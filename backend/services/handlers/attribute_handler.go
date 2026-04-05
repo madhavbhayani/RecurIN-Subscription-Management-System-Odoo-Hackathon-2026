@@ -96,7 +96,7 @@ func (handler *AttributeHandler) HandleListAttributes(writer http.ResponseWriter
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"attributes":  items,
+		"attributes": items,
 		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }

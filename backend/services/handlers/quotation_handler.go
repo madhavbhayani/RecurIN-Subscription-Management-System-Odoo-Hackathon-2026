@@ -87,7 +87,7 @@ func (handler *QuotationHandler) HandleListQuotations(writer http.ResponseWriter
 	}
 
 	writeJSON(writer, http.StatusOK, map[string]interface{}{
-		"quotations":  items,
+		"quotations": items,
 		"pagination": buildPaginationResponse(pageForResponse, adminListPageSize, totalRecords),
 	})
 }
