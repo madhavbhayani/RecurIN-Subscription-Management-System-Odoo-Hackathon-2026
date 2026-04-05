@@ -3,6 +3,9 @@ import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import VerifyOtpPage from './pages/VerifyOtpPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import ShopPage from './pages/shop/ShopPage'
 import ShopProductDetailPage from './pages/shop/ShopProductDetailPage'
 import CartPage from './pages/CartPage'
@@ -126,6 +129,9 @@ function App() {
           <Route path="/subscription" element={<MySubscriptionPage />} />
           <Route path="/about" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/verify-otp" element={<VerifyOtpPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

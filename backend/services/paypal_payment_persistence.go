@@ -34,6 +34,7 @@ func (service *PayPalService) persistCapturedPayment(
 	amount float64,
 	currency string,
 	rawPayload []byte,
+	targetSubscriptionID string,
 ) ([]string, error) {
 	log.Printf("[PERSIST] persistCapturedPayment called: userID=%q paymentID=%q status=%q amount=%.2f", userID, paymentID, status, amount)
 
@@ -45,6 +46,7 @@ func (service *PayPalService) persistCapturedPayment(
 	normalizedUserID := strings.TrimSpace(userID)
 	normalizedPaymentID := strings.TrimSpace(paymentID)
 	normalizedCurrency := strings.ToUpper(strings.TrimSpace(currency))
+	normalizedTargetSubscriptionID := strings.TrimSpace(targetSubscriptionID)
 	if normalizedCurrency == "" {
 		normalizedCurrency = service.currencyCode
 	}
@@ -63,15 +65,18 @@ func (service *PayPalService) persistCapturedPayment(
 		return service.listSubscriptionIDsByPaymentID(ctx, normalizedUserID, normalizedPaymentID)
 	}
 
-	// Get cart items BEFORE starting transaction to ensure we have them
-	cartItems, err := service.cartService.ListCartItems(ctx, normalizedUserID)
-	if err != nil {
-		log.Printf("[PERSIST] ERROR fetching cart items: %v", err)
-		return nil, err
-	}
-	log.Printf("[PERSIST] Found %d cart items for user %s", len(cartItems), normalizedUserID)
-	for i, item := range cartItems {
-		log.Printf("[PERSIST]   cart[%d]: productID=%s productName=%s qty=%d lineTotal=%.2f", i, item.ProductID, item.ProductName, item.Quantity, item.LineTotal)
+	var cartItems []models.CartItem
+	if normalizedTargetSubscriptionID == "" {
+		// Get cart items BEFORE starting transaction to keep behavior unchanged for cart checkout.
+		cartItems, err = service.cartService.ListCartItems(ctx, normalizedUserID)
+		if err != nil {
+			log.Printf("[PERSIST] ERROR fetching cart items: %v", err)
+			return nil, err
+		}
+		log.Printf("[PERSIST] Found %d cart items for user %s", len(cartItems), normalizedUserID)
+		for i, item := range cartItems {
+			log.Printf("[PERSIST]   cart[%d]: productID=%s productName=%s qty=%d lineTotal=%.2f", i, item.ProductID, item.ProductName, item.Quantity, item.LineTotal)
+		}
 	}
 
 	tx, err := service.cartService.db.Begin(ctx)
@@ -82,6 +87,35 @@ func (service *PayPalService) persistCapturedPayment(
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
+
+	if normalizedTargetSubscriptionID != "" {
+		log.Printf("[PERSIST] Persisting payment for existing quotation subscription %s", normalizedTargetSubscriptionID)
+		subscriptionIDs, quotationPersistErr := service.persistCapturedQuotationPaymentTx(
+			ctx,
+			tx,
+			normalizedUserID,
+			normalizedTargetSubscriptionID,
+			normalizedPaymentID,
+			strings.TrimSpace(payerID),
+			strings.TrimSpace(captureID),
+			strings.TrimSpace(status),
+			amount,
+			normalizedCurrency,
+			rawPayload,
+		)
+		if quotationPersistErr != nil {
+			log.Printf("[PERSIST] ERROR persisting quotation payment: %v", quotationPersistErr)
+			return nil, quotationPersistErr
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			log.Printf("[PERSIST] ERROR committing quotation payment transaction: %v", err)
+			return nil, fmt.Errorf("failed to commit quotation payment transaction: %w", err)
+		}
+
+		log.Printf("[PERSIST] ✅ Quotation payment persisted successfully: user=%s paymentID=%s subscription=%s", normalizedUserID, normalizedPaymentID, normalizedTargetSubscriptionID)
+		return subscriptionIDs, nil
+	}
 
 	customerName, err := service.fetchCustomerNameTx(ctx, tx, normalizedUserID)
 	if err != nil {
@@ -184,6 +218,140 @@ func (service *PayPalService) persistCapturedPayment(
 
 	log.Printf("[PERSIST] ✅ Payment persisted successfully: user=%s paymentID=%s subscriptions=%v", normalizedUserID, normalizedPaymentID, createdSubscriptionIDs)
 	return createdSubscriptionIDs, nil
+}
+
+func (service *PayPalService) persistCapturedQuotationPaymentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID string,
+	subscriptionID string,
+	paymentID string,
+	payerID string,
+	captureID string,
+	status string,
+	amount float64,
+	currency string,
+	rawPayload []byte,
+) ([]string, error) {
+	normalizedSubscriptionID := strings.TrimSpace(subscriptionID)
+	if normalizedSubscriptionID == "" {
+		return nil, ValidationError{Message: "Subscription ID is required for quotation payment."}
+	}
+
+	const lockSubscriptionQuery = `
+		SELECT s.status
+		FROM subscription.subscriptions s
+		WHERE s.subscription_id = $1
+		  AND s.customer_id = $2
+		FOR UPDATE`
+
+	const quotationTotalAmountQuery = `
+		SELECT COALESCE(SUM(
+			CASE
+				WHEN sp.total_amount > 0 THEN sp.total_amount
+				ELSE sp.unit_price * GREATEST(sp.quantity, 1)
+			END
+		), 0)::float8
+		FROM subscription.subscription_products sp
+		WHERE sp.subscription_id = $1`
+
+	var currentStatus string
+	var quotationTotalAmount float64
+	if err := tx.QueryRow(ctx, lockSubscriptionQuery, normalizedSubscriptionID, userID).Scan(&currentStatus); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ValidationError{Message: "Selected quotation was not found."}
+		}
+		return nil, fmt.Errorf("failed to load quotation payment details: %w", err)
+	}
+
+	if err := tx.QueryRow(ctx, quotationTotalAmountQuery, normalizedSubscriptionID).Scan(&quotationTotalAmount); err != nil {
+		return nil, fmt.Errorf("failed to calculate quotation total amount: %w", err)
+	}
+
+	normalizedCurrentStatus := strings.TrimSpace(currentStatus)
+	if !strings.EqualFold(normalizedCurrentStatus, string(models.SubscriptionStatusQuotationSent)) {
+		if strings.EqualFold(normalizedCurrentStatus, string(models.SubscriptionStatusConfirmed)) {
+			return nil, ValidationError{Message: "This quotation is already confirmed."}
+		}
+		return nil, ValidationError{Message: fmt.Sprintf("Payment is only allowed when status is Quotation Sent (current: %s).", normalizedCurrentStatus)}
+	}
+
+	paymentAmount := roundCurrency(amount)
+	if paymentAmount <= 0 {
+		paymentAmount = roundCurrency(quotationTotalAmount)
+	}
+	if paymentAmount <= 0 {
+		return nil, ValidationError{Message: "Quotation total must be greater than zero."}
+	}
+
+	normalizedCurrency := strings.ToUpper(strings.TrimSpace(currency))
+	if normalizedCurrency == "" {
+		normalizedCurrency = service.currencyCode
+	}
+
+	normalizedPayPalStatus := strings.TrimSpace(status)
+	if normalizedPayPalStatus == "" {
+		normalizedPayPalStatus = "completed"
+	}
+
+	const updateSubscriptionStatusQuery = `
+		UPDATE subscription.subscriptions
+		SET
+			status = $1,
+			updated_at = NOW()
+		WHERE subscription_id = $2
+		  AND customer_id = $3`
+
+	updateResult, err := tx.Exec(ctx, updateSubscriptionStatusQuery, string(models.SubscriptionStatusConfirmed), normalizedSubscriptionID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update quotation subscription status: %w", err)
+	}
+	if updateResult.RowsAffected() == 0 {
+		return nil, ValidationError{Message: "Selected quotation was not found."}
+	}
+
+	startDate := time.Now().UTC()
+	startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, time.UTC)
+
+	const upsertOtherInfoQuery = `
+		INSERT INTO subscription.subscription_other_info (
+			subscription_id,
+			start_date,
+			payment_method,
+			is_payment_mode
+		)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (subscription_id)
+		DO UPDATE SET
+			start_date = COALESCE(subscription.subscription_other_info.start_date, EXCLUDED.start_date),
+			payment_method = EXCLUDED.payment_method,
+			is_payment_mode = EXCLUDED.is_payment_mode,
+			updated_at = NOW()`
+
+	if _, err := tx.Exec(ctx, upsertOtherInfoQuery, normalizedSubscriptionID, startDate, "PayPal", true); err != nil {
+		return nil, fmt.Errorf("failed to update subscription payment metadata: %w", err)
+	}
+
+	invoiceNumber := buildInvoiceNumber(paymentID, 1)
+	subscriptionIDCopy := normalizedSubscriptionID
+	if err := service.insertPaymentRecordTx(
+		ctx,
+		tx,
+		userID,
+		&subscriptionIDCopy,
+		invoiceNumber,
+		paymentID,
+		payerID,
+		captureID,
+		normalizedPayPalStatus,
+		paymentAmount,
+		normalizedCurrency,
+		rawPayload,
+	); err != nil {
+		return nil, err
+	}
+
+	return []string{normalizedSubscriptionID}, nil
 }
 
 func (service *PayPalService) isPaymentAlreadyRecorded(ctx context.Context, userID, paymentID string) (bool, error) {

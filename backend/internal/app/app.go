@@ -53,6 +53,17 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	workerPool := queue.NewWorkerPool(cfg.QueueWorkerCount, cfg.QueueBufferSize)
 	workerPool.Start()
 	userService := services.NewUserService(dbPool)
+	passwordResetService := services.NewPasswordResetService(dbPool, services.PasswordResetServiceConfig{
+		SMTPHost:                 cfg.SMTPHost,
+		SMTPPort:                 cfg.SMTPPort,
+		SMTPUsername:             cfg.SMTPUsername,
+		SMTPPassword:             cfg.SMTPPassword,
+		SMTPFromEmail:            cfg.SMTPFromEmail,
+		SMTPFromName:             cfg.SMTPFromName,
+		PasswordResetOTPExpiry:   cfg.PasswordResetOTPExpiry,
+		PasswordResetTokenExpiry: cfg.PasswordResetTokenExpiry,
+		PasswordResetMaxAttempts: cfg.PasswordResetMaxAttempts,
+	})
 	subscriptionDocumentService := services.NewSubscriptionDocumentService(cfg.PDFLogoPath)
 	reportingService := services.NewReportingService(dbPool, cfg.PDFLogoPath)
 	attributeService := services.NewAttributeService(dbPool)
@@ -78,7 +89,7 @@ func NewApplication(ctx context.Context) (*Application, error) {
 	subscriptionService := services.NewSubscriptionService(dbPool, quoteNotifier)
 
 	router := http.NewServeMux()
-	registerRoutes(router, dbPool, tokenManager, workerPool, userService, subscriptionDocumentService, reportingService, attributeService, taxService, productService, cartService, payPalService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
+	registerRoutes(router, dbPool, tokenManager, workerPool, userService, passwordResetService, subscriptionDocumentService, reportingService, attributeService, taxService, productService, cartService, payPalService, recurringPlanService, quotationService, paymentTermService, discountService, subscriptionService, roleService)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
@@ -117,6 +128,7 @@ func registerRoutes(
 	tokenManager *auth.TokenManager,
 	workerPool *queue.WorkerPool,
 	userService *services.UserService,
+	passwordResetService *services.PasswordResetService,
 	subscriptionDocumentService *services.SubscriptionDocumentService,
 	reportingService *services.ReportingService,
 	attributeService *services.AttributeService,
@@ -132,7 +144,7 @@ func registerRoutes(
 	roleService *services.RoleService,
 ) {
 	healthHandler := handlers.NewHealthHandler()
-	authHandler := handlers.NewAuthHandler(tokenManager, workerPool, userService)
+	authHandler := handlers.NewAuthHandler(tokenManager, workerPool, userService, passwordResetService)
 	userHandler := handlers.NewUserHandler(userService, subscriptionDocumentService)
 	attributeHandler := handlers.NewAttributeHandler(attributeService)
 	taxHandler := handlers.NewTaxHandler(taxService)
@@ -168,6 +180,9 @@ func registerRoutes(
 	router.HandleFunc("GET /api/v1/health", healthHandler.HandleHealth)
 	router.HandleFunc("POST /api/v1/auth/signup", authHandler.HandleSignup)
 	router.HandleFunc("POST /api/v1/auth/login", authHandler.HandleLogin)
+	router.HandleFunc("POST /api/v1/auth/forgot-password/request-otp", authHandler.HandleForgotPasswordRequestOTP)
+	router.HandleFunc("POST /api/v1/auth/forgot-password/verify-otp", authHandler.HandleForgotPasswordVerifyOTP)
+	router.HandleFunc("POST /api/v1/auth/forgot-password/reset-password", authHandler.HandleForgotPasswordReset)
 	router.HandleFunc("GET /api/v1/products", productHandler.HandleListProducts)
 	router.HandleFunc("GET /api/v1/recurring-plans", recurringPlanHandler.HandleListRecurringPlans)
 

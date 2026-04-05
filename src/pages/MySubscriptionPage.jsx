@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   downloadMySubscriptionInvoicePdf,
   downloadMySubscriptionQuotationPdf,
@@ -162,6 +162,7 @@ function SubscriptionCards({
 }
 
 function MySubscriptionPage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState(TAB_ACTIVE)
   const [activeSubscriptions, setActiveSubscriptions] = useState([])
   const [quotationSubscriptions, setQuotationSubscriptions] = useState([])
@@ -201,8 +202,24 @@ function MySubscriptionPage() {
 
   const handleQuotationAction = async (subscriptionId, action) => {
     setActionMessage('')
+
+    const normalizedSubscriptionID = String(subscriptionId ?? '').trim()
+    if (!normalizedSubscriptionID) {
+      setActionMessage('Error: Subscription ID is required.')
+      return
+    }
+
+    if (action === 'accept') {
+      const query = new URLSearchParams({
+        subscription_id: normalizedSubscriptionID,
+        checkout_mode: 'quotation',
+      })
+      navigate(`/check-out?${query.toString()}`)
+      return
+    }
+
     try {
-      await respondToQuotation(subscriptionId, action)
+      await respondToQuotation(normalizedSubscriptionID, action)
       setActionMessage(
         action === 'accept'
           ? 'Quotation accepted! Subscription is now active.'

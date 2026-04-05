@@ -71,6 +71,14 @@ function CheckoutSuccessPage() {
   const orderID = decodePayPalParam(searchParams.get('token'))
   const paymentID = decodePayPalParam(searchParams.get('paymentId') ?? searchParams.get('paymentID'))
   const payerID = decodePayPalParam(searchParams.get('PayerID') ?? searchParams.get('payerId'))
+  const subscriptionIDFromURL = decodePayPalParam(searchParams.get('subscription_id'))
+  const checkoutSnapshot = checkoutSnapshotRef.current
+  const checkoutModeParam = String(searchParams.get('checkout_mode') ?? '').trim().toLowerCase()
+  const checkoutModeFromSnapshot = String(checkoutSnapshot?.checkout_mode ?? '').trim().toLowerCase()
+  const checkoutMode = checkoutModeParam || checkoutModeFromSnapshot
+  const snapshotSubscriptionID = String(checkoutSnapshot?.subscription_id ?? '').trim()
+  const quotationSubscriptionID = String(subscriptionIDFromURL || snapshotSubscriptionID).trim()
+  const isQuotationCheckout = checkoutMode === 'quotation' || quotationSubscriptionID !== ''
   const invoiceNumber = String(
     payment?.capture_id
       ?? payment?.order_id
@@ -78,24 +86,23 @@ function CheckoutSuccessPage() {
       ?? orderID
       ?? ''
   ).trim()
-  const checkoutSnapshot = checkoutSnapshotRef.current
   const checkedOutAmount = Number(checkoutSnapshotRef.current?.amount_inr)
   const amountInINR = Number.isFinite(checkedOutAmount) ? checkedOutAmount : Number(payment?.amount)
   const capturedSubscriptionIDs = Array.isArray(payment?.subscription_ids) ? payment.subscription_ids : []
+  const resolvedSubscriptionID = String(capturedSubscriptionIDs[0] ?? quotationSubscriptionID).trim()
 
   const handleDownloadInvoice = async () => {
     setDownloadMessage('')
 
-    const firstSubscriptionID = String(capturedSubscriptionIDs[0] ?? '').trim()
-    if (!firstSubscriptionID) {
+    if (!resolvedSubscriptionID) {
       setDownloadMessage('Invoice is being prepared. You can download it from My Subscriptions shortly.')
       return
     }
 
     setIsDownloadingInvoice(true)
     try {
-      const fallbackFileName = `Invoice-${invoiceNumber || firstSubscriptionID}.pdf`
-      await downloadMySubscriptionInvoicePdf(firstSubscriptionID, fallbackFileName)
+      const fallbackFileName = `Invoice-${invoiceNumber || resolvedSubscriptionID}.pdf`
+      await downloadMySubscriptionInvoicePdf(resolvedSubscriptionID, fallbackFileName)
     } catch (error) {
       setDownloadMessage(error.message)
     } finally {
@@ -127,6 +134,10 @@ function CheckoutSuccessPage() {
           ? { payment_id: paymentID, payer_id: payerID }
           : { order_id: orderID }
 
+        if (quotationSubscriptionID) {
+          payload.subscription_id = quotationSubscriptionID
+        }
+
         console.log('[CAPTURE] URL params:', { orderID, paymentID, payerID })
         console.log('[CAPTURE] Sending capture request with payload:', JSON.stringify(payload))
 
@@ -150,14 +161,16 @@ function CheckoutSuccessPage() {
     return () => {
       isMounted = false
     }
-  }, [hasSession, orderID, paymentID, payerID])
+  }, [hasSession, orderID, paymentID, payerID, quotationSubscriptionID])
 
   return (
     <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
       <section className="rounded-2xl border border-[color:rgba(0,0,128,0.14)] bg-[var(--white)] p-6 shadow-[0_8px_24px_rgba(0,0,128,0.08)] sm:p-8">
         <h1 className="text-3xl font-bold text-[var(--navy)] sm:text-4xl">Payment Status</h1>
         <p className="mt-2 text-sm text-[color:rgba(0,0,128,0.78)] sm:text-base">
-          Your PayPal checkout has been completed and the invoice is ready.
+          {isQuotationCheckout
+            ? 'Your quotation payment has been completed and the existing subscription is now confirmed.'
+            : 'Your PayPal checkout has been completed and the invoice is ready.'}
         </p>
 
         {!hasSession ? (
@@ -179,8 +192,12 @@ function CheckoutSuccessPage() {
           </div>
 
           <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-800">
-            <p className="font-bold">Subscription Created</p>
-            <p className="mt-1">Your subscription has been automatically activated based on your cart items. You can view and manage it from the My Subscriptions page.</p>
+            <p className="font-bold">{isQuotationCheckout ? 'Subscription Confirmed' : 'Subscription Created'}</p>
+            <p className="mt-1">
+              {isQuotationCheckout
+                ? 'Payment has been recorded for your existing quotation subscription. You can view it in My Subscriptions.'
+                : 'Your subscription has been automatically activated based on your cart items. You can view and manage it from My Subscriptions.'}
+            </p>
           </div>
 
           {downloadMessage && (
@@ -207,7 +224,7 @@ function CheckoutSuccessPage() {
             Back to Shop
           </Link>
           <Link
-            to="/my-subscriptions"
+            to="/subscription"
             className="inline-flex h-10 items-center rounded-lg bg-[var(--orange)] px-4 text-sm font-semibold text-[var(--white)] transition-colors duration-300 hover:bg-[#e65f00]"
           >
             View My Subscriptions

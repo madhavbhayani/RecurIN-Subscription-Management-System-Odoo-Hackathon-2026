@@ -123,9 +123,9 @@ function LoginPage() {
           <Link to="/signup" className="w-fit font-semibold text-[var(--navy)] hover:text-[var(--orange)]">
             Create Account
           </Link>
-          <button type="button" className="w-fit font-semibold text-[var(--navy)] hover:text-[var(--orange)]">
+          <Link to="/forgot-password" className="w-fit font-semibold text-[var(--navy)] hover:text-[var(--orange)]">
             Forgot Password?
-          </button>
+          </Link>
         </div>
       </div>
     </section>

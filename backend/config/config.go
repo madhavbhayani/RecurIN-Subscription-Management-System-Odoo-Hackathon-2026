@@ -41,6 +41,9 @@ type Config struct {
 	SMTPPassword               string
 	SMTPFromEmail              string
 	SMTPFromName               string
+	PasswordResetOTPExpiry     int
+	PasswordResetTokenExpiry   int
+	PasswordResetMaxAttempts   int
 }
 
 // Load reads environment values from .env and process env.
@@ -78,6 +81,9 @@ func Load() (Config, error) {
 		SMTPPassword:               getEnv("SMTP_PASSWORD", ""),
 		SMTPFromEmail:              getEnv("SMTP_FROM_EMAIL", ""),
 		SMTPFromName:               getEnv("SMTP_FROM_NAME", "RecurIN Subscriptions"),
+		PasswordResetOTPExpiry:     getEnvAsInt("PASSWORD_RESET_OTP_EXPIRY_MINUTES", 10),
+		PasswordResetTokenExpiry:   getEnvAsInt("PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", 15),
+		PasswordResetMaxAttempts:   getEnvAsInt("PASSWORD_RESET_OTP_MAX_ATTEMPTS", 5),
 	}
 
 	if strings.TrimSpace(cfg.JWTSecret) == "" {

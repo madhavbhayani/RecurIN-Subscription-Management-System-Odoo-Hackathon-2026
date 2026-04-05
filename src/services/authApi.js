@@ -39,3 +39,15 @@ export function signupUser(payload) {
 export function loginUser(payload) {
   return request('/api/v1/auth/login', payload)
 }
+
+export function requestForgotPasswordOTP(payload) {
+  return request('/api/v1/auth/forgot-password/request-otp', payload)
+}
+
+export function verifyForgotPasswordOTP(payload) {
+  return request('/api/v1/auth/forgot-password/verify-otp', payload)
+}
+
+export function resetForgotPassword(payload) {
+  return request('/api/v1/auth/forgot-password/reset-password', payload)
+}

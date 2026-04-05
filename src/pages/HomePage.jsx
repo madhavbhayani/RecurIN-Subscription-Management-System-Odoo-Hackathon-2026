@@ -100,16 +100,16 @@ function HomePage() {
 
         <div className="relative flex min-h-[calc(100vh-78px)] flex-col items-center justify-center px-4 py-12 text-center sm:px-6 lg:px-8">
           <h1 className="text-5xl font-bold tracking-tight text-[var(--navy)] sm:text-6xl">
-            RecurIN
+            Automate Renewals. Grow Recurring Revenue.
           </h1>
 
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-[color:rgba(0,0,128,0.72)] sm:text-sm">
-            Subscription &amp; Management
+            Quote to Confirmation to Billing in One Flow
           </p>
 
           <p className="mt-8 max-w-3xl text-sm text-[color:rgba(0,0,128,0.82)] sm:text-base">
-            RecurIN helps businesses centralize recurring plans, automate renewal workflows, and improve
-            decision making with actionable visibility across the subscription lifecycle.
+            Centralize recurring plans, automate lifecycle operations, and make faster decisions with
+            clearer visibility across subscriptions, payments, and renewals.
           </p>
 
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">

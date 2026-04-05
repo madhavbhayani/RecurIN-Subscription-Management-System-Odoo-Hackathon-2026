@@ -3,16 +3,22 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/services"
 )
 
+type createPayPalOrderRequest struct {
+	SubscriptionID string `json:"subscription_id"`
+}
+
 type capturePayPalOrderRequest struct {
-	OrderID   string `json:"order_id"`
-	PaymentID string `json:"payment_id"`
-	PayerID   string `json:"payer_id"`
+	OrderID        string `json:"order_id"`
+	PaymentID      string `json:"payment_id"`
+	PayerID        string `json:"payer_id"`
+	SubscriptionID string `json:"subscription_id"`
 }
 
 // PaymentHandler handles authenticated payment flows.
@@ -31,7 +37,17 @@ func (handler *PaymentHandler) HandleCreatePayPalOrder(writer http.ResponseWrite
 		return
 	}
 
-	order, err := handler.payPalService.CreateOrder(request.Context(), userID)
+	defer request.Body.Close()
+
+	var payload createPayPalOrderRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(writer, "Invalid request payload.", http.StatusBadRequest)
+		return
+	}
+
+	order, err := handler.payPalService.CreateOrder(request.Context(), userID, payload.SubscriptionID)
 	if err != nil {
 		handler.writePaymentError(writer, err)
 		return
@@ -67,7 +83,14 @@ func (handler *PaymentHandler) HandleCapturePayPalOrder(writer http.ResponseWrit
 
 	log.Printf("[HANDLER] HandleCapturePayPalOrder: userID=%s orderID=%q paymentID=%q payerID=%q", userID, payload.OrderID, payload.PaymentID, payload.PayerID)
 
-	captureResult, err := handler.payPalService.CaptureOrder(request.Context(), userID, payload.OrderID, payload.PaymentID, payload.PayerID)
+	captureResult, err := handler.payPalService.CaptureOrder(
+		request.Context(),
+		userID,
+		payload.OrderID,
+		payload.PaymentID,
+		payload.PayerID,
+		payload.SubscriptionID,
+	)
 	if err != nil {
 		log.Printf("[HANDLER] CaptureOrder error for user %s: %v", userID, err)
 		handler.writePaymentError(writer, err)

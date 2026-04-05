@@ -17,9 +17,10 @@ import (
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	tokenManager *auth.TokenManager
-	queue        *queue.WorkerPool
-	userService  *services.UserService
+	tokenManager         *auth.TokenManager
+	queue                *queue.WorkerPool
+	userService          *services.UserService
+	passwordResetService *services.PasswordResetService
 }
 
 type loginRequest struct {
@@ -35,6 +36,20 @@ type signupRequest struct {
 	PhoneNumber string `json:"phone_number"`
 }
 
+type forgotPasswordRequestOTPRequest struct {
+	Email string `json:"email"`
+}
+
+type forgotPasswordVerifyOTPRequest struct {
+	Email string `json:"email"`
+	OTP   string `json:"otp"`
+}
+
+type forgotPasswordResetRequest struct {
+	ResetToken  string `json:"reset_token"`
+	NewPassword string `json:"new_password"`
+}
+
 type authResult struct {
 	User      models.User
 	Token     string
@@ -42,8 +57,18 @@ type authResult struct {
 	Err       error
 }
 
-func NewAuthHandler(tokenManager *auth.TokenManager, workerPool *queue.WorkerPool, userService *services.UserService) *AuthHandler {
-	return &AuthHandler{tokenManager: tokenManager, queue: workerPool, userService: userService}
+func NewAuthHandler(
+	tokenManager *auth.TokenManager,
+	workerPool *queue.WorkerPool,
+	userService *services.UserService,
+	passwordResetService *services.PasswordResetService,
+) *AuthHandler {
+	return &AuthHandler{
+		tokenManager:         tokenManager,
+		queue:                workerPool,
+		userService:          userService,
+		passwordResetService: passwordResetService,
+	}
 }
 
 func (handler *AuthHandler) HandleSignup(writer http.ResponseWriter, request *http.Request) {
@@ -159,6 +184,86 @@ func (handler *AuthHandler) HandleLogin(writer http.ResponseWriter, request *htt
 			"user":         buildUserResponse(result.User),
 		})
 	}
+}
+
+func (handler *AuthHandler) HandleForgotPasswordRequestOTP(writer http.ResponseWriter, request *http.Request) {
+	defer request.Body.Close()
+
+	var payload forgotPasswordRequestOTPRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		http.Error(writer, "invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	if handler.passwordResetService == nil {
+		http.Error(writer, "password reset service is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	if err := handler.passwordResetService.RequestPasswordResetOTP(request.Context(), payload.Email); err != nil {
+		handler.writeAuthError(writer, err)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"message": "If this email is registered, a 6-digit OTP has been sent.",
+	})
+}
+
+func (handler *AuthHandler) HandleForgotPasswordVerifyOTP(writer http.ResponseWriter, request *http.Request) {
+	defer request.Body.Close()
+
+	var payload forgotPasswordVerifyOTPRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		http.Error(writer, "invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	if handler.passwordResetService == nil {
+		http.Error(writer, "password reset service is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	resetToken, err := handler.passwordResetService.VerifyPasswordResetOTP(request.Context(), payload.Email, payload.OTP)
+	if err != nil {
+		handler.writeAuthError(writer, err)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"message":     "OTP verified successfully.",
+		"reset_token": resetToken,
+	})
+}
+
+func (handler *AuthHandler) HandleForgotPasswordReset(writer http.ResponseWriter, request *http.Request) {
+	defer request.Body.Close()
+
+	var payload forgotPasswordResetRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		http.Error(writer, "invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	if handler.passwordResetService == nil {
+		http.Error(writer, "password reset service is not configured", http.StatusInternalServerError)
+		return
+	}
+
+	if err := handler.passwordResetService.ResetPassword(request.Context(), payload.ResetToken, payload.NewPassword); err != nil {
+		handler.writeAuthError(writer, err)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]interface{}{
+		"message": "Password reset successfully. Please login with your new password.",
+	})
 }
 
 func (handler *AuthHandler) HandleWhoAmI(writer http.ResponseWriter, request *http.Request) {

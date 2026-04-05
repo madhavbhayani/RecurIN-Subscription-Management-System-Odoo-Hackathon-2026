@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/madhavbhayani/RecurIN-Subscription-Management-System-Odoo-Hackathon-2026.git/models"
 )
@@ -41,6 +44,13 @@ type PayPalCaptureOrderResult struct {
 	Currency        string
 	PayerEmail      string
 	SubscriptionIDs []string
+}
+
+type quotationCheckoutOrderContext struct {
+	SubscriptionID     string
+	SubscriptionNumber string
+	ItemName           string
+	TotalAmount        float64
 }
 
 // PayPalService handles create/capture operations against PayPal Orders API.
@@ -92,7 +102,7 @@ func (service *PayPalService) ensureConfigured() error {
 	return nil
 }
 
-func (service *PayPalService) CreateOrder(ctx context.Context, userID string) (PayPalCreateOrderResult, error) {
+func (service *PayPalService) CreateOrder(ctx context.Context, userID, targetSubscriptionID string) (PayPalCreateOrderResult, error) {
 	normalizedUserID := strings.TrimSpace(userID)
 	if normalizedUserID == "" {
 		return PayPalCreateOrderResult{}, ValidationError{Message: "User ID is required."}
@@ -101,23 +111,38 @@ func (service *PayPalService) CreateOrder(ctx context.Context, userID string) (P
 		return PayPalCreateOrderResult{}, err
 	}
 
-	cartItems, err := service.cartService.ListCartItems(ctx, normalizedUserID)
-	if err != nil {
-		return PayPalCreateOrderResult{}, err
-	}
-	if len(cartItems) == 0 {
-		return PayPalCreateOrderResult{}, ValidationError{Message: "Your cart is empty."}
-	}
-
+	normalizedTargetSubscriptionID := strings.TrimSpace(targetSubscriptionID)
 	totalAmount := 0.0
-	for _, item := range cartItems {
-		if item.LineTotal > 0 {
-			totalAmount += item.LineTotal
+	itemName := ""
+
+	if normalizedTargetSubscriptionID != "" {
+		quotationContext, err := service.buildQuotationCheckoutOrderContext(ctx, normalizedUserID, normalizedTargetSubscriptionID)
+		if err != nil {
+			return PayPalCreateOrderResult{}, err
 		}
-	}
-	totalAmount = roundCurrency(totalAmount)
-	if totalAmount <= 0 {
-		return PayPalCreateOrderResult{}, ValidationError{Message: "Cart total must be greater than zero."}
+
+		totalAmount = quotationContext.TotalAmount
+		itemName = quotationContext.ItemName
+	} else {
+		cartItems, err := service.cartService.ListCartItems(ctx, normalizedUserID)
+		if err != nil {
+			return PayPalCreateOrderResult{}, err
+		}
+		if len(cartItems) == 0 {
+			return PayPalCreateOrderResult{}, ValidationError{Message: "Your cart is empty."}
+		}
+
+		for _, item := range cartItems {
+			if item.LineTotal > 0 {
+				totalAmount += item.LineTotal
+			}
+		}
+		totalAmount = roundCurrency(totalAmount)
+		if totalAmount <= 0 {
+			return PayPalCreateOrderResult{}, ValidationError{Message: "Cart total must be greater than zero."}
+		}
+
+		itemName = buildPayPalItemSummary(cartItems)
 	}
 
 	accessToken, err := service.requestAccessToken(ctx)
@@ -125,13 +150,12 @@ func (service *PayPalService) CreateOrder(ctx context.Context, userID string) (P
 		return PayPalCreateOrderResult{}, err
 	}
 
-	itemName := buildPayPalItemSummary(cartItems)
-	paymentID, err := service.createLegacyPayment(ctx, accessToken, totalAmount, itemName)
+	paymentID, err := service.createLegacyPayment(ctx, accessToken, totalAmount, itemName, normalizedTargetSubscriptionID)
 	if err != nil {
 		return PayPalCreateOrderResult{}, err
 	}
 
-	approvalURL := service.buildSandboxXClickURL(paymentID, totalAmount, itemName)
+	approvalURL := service.buildSandboxXClickURL(paymentID, totalAmount, itemName, normalizedTargetSubscriptionID)
 
 	return PayPalCreateOrderResult{
 		OrderID:     paymentID,
@@ -141,11 +165,96 @@ func (service *PayPalService) CreateOrder(ctx context.Context, userID string) (P
 	}, nil
 }
 
-func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID, paymentID, payerID string) (PayPalCaptureOrderResult, error) {
+func (service *PayPalService) buildQuotationCheckoutOrderContext(ctx context.Context, userID, subscriptionID string) (quotationCheckoutOrderContext, error) {
+	if service.cartService == nil || service.cartService.db == nil {
+		return quotationCheckoutOrderContext{}, fmt.Errorf("paypal service is not initialized correctly")
+	}
+
+	const query = `
+		SELECT
+			s.subscription_number,
+			s.status,
+			COALESCE(SUM(
+				CASE
+					WHEN sp.total_amount > 0 THEN sp.total_amount
+					ELSE sp.unit_price * GREATEST(sp.quantity, 1)
+				END
+			), 0)::float8,
+			COALESCE(MIN(NULLIF(TRIM(p.product_name), '')), ''),
+			COUNT(sp.subscription_product_id)::int
+		FROM subscription.subscriptions s
+		LEFT JOIN subscription.subscription_products sp ON sp.subscription_id = s.subscription_id
+		LEFT JOIN products.product_data p ON p.product_id = sp.product_id
+		WHERE s.subscription_id = $1
+		  AND s.customer_id = $2
+		GROUP BY s.subscription_number, s.status
+		LIMIT 1`
+
+	var subscriptionNumber string
+	var currentStatus string
+	var totalAmount float64
+	var firstProductName string
+	var productCount int
+
+	if err := service.cartService.db.QueryRow(ctx, query, subscriptionID, userID).Scan(
+		&subscriptionNumber,
+		&currentStatus,
+		&totalAmount,
+		&firstProductName,
+		&productCount,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return quotationCheckoutOrderContext{}, ValidationError{Message: "Selected quotation was not found."}
+		}
+		return quotationCheckoutOrderContext{}, fmt.Errorf("failed to load quotation checkout details: %w", err)
+	}
+
+	normalizedStatus := strings.TrimSpace(currentStatus)
+	if !strings.EqualFold(normalizedStatus, string(models.SubscriptionStatusQuotationSent)) {
+		if strings.EqualFold(normalizedStatus, string(models.SubscriptionStatusConfirmed)) {
+			return quotationCheckoutOrderContext{}, ValidationError{Message: "This quotation is already confirmed."}
+		}
+		return quotationCheckoutOrderContext{}, ValidationError{Message: fmt.Sprintf("Payment is only allowed when status is Quotation Sent (current: %s).", normalizedStatus)}
+	}
+
+	if productCount < 1 {
+		return quotationCheckoutOrderContext{}, ValidationError{Message: "This quotation has no products to checkout."}
+	}
+
+	totalAmount = roundCurrency(totalAmount)
+	if totalAmount <= 0 {
+		return quotationCheckoutOrderContext{}, ValidationError{Message: "Quotation total must be greater than zero."}
+	}
+
+	trimmedSubscriptionNumber := strings.TrimSpace(subscriptionNumber)
+	if trimmedSubscriptionNumber == "" {
+		trimmedSubscriptionNumber = "Quotation"
+	}
+
+	trimmedFirstProductName := strings.TrimSpace(firstProductName)
+	if trimmedFirstProductName == "" {
+		trimmedFirstProductName = fmt.Sprintf("Quotation %s", trimmedSubscriptionNumber)
+	}
+
+	itemName := trimmedFirstProductName
+	if productCount > 1 {
+		itemName = fmt.Sprintf("%s and %d more item(s)", trimmedFirstProductName, productCount-1)
+	}
+
+	return quotationCheckoutOrderContext{
+		SubscriptionID:     subscriptionID,
+		SubscriptionNumber: trimmedSubscriptionNumber,
+		ItemName:           itemName,
+		TotalAmount:        totalAmount,
+	}, nil
+}
+
+func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID, paymentID, payerID, targetSubscriptionID string) (PayPalCaptureOrderResult, error) {
 	normalizedUserID := strings.TrimSpace(userID)
 	normalizedOrderID := strings.TrimSpace(orderID)
 	normalizedPaymentID := strings.TrimSpace(paymentID)
 	normalizedPayerID := strings.TrimSpace(payerID)
+	normalizedTargetSubscriptionID := strings.TrimSpace(targetSubscriptionID)
 
 	log.Printf("[CAPTURE] CaptureOrder called: userID=%q, orderID=%q, paymentID=%q, payerID=%q", normalizedUserID, normalizedOrderID, normalizedPaymentID, normalizedPayerID)
 
@@ -156,7 +265,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 	if normalizedPaymentID != "" {
 		if normalizedPayerID != "" {
 			log.Printf("[CAPTURE] Legacy flow: executing payment %s with payer %s", normalizedPaymentID, normalizedPayerID)
-			return service.executeLegacyPayment(ctx, normalizedUserID, normalizedPaymentID, normalizedPayerID)
+			return service.executeLegacyPayment(ctx, normalizedUserID, normalizedPaymentID, normalizedPayerID, normalizedTargetSubscriptionID)
 		}
 
 		// xclick sandbox flow: PayerID is NOT returned in the redirect URL.
@@ -236,6 +345,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 			paymentAmount,
 			paymentCurrency,
 			rawPayload,
+			normalizedTargetSubscriptionID,
 		)
 		if persistErr != nil {
 			log.Printf("[CAPTURE] ERROR persisting xclick payment: %v", persistErr)
@@ -351,6 +461,7 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 			amountValue,
 			strings.TrimSpace(capture.Amount.CurrencyCode),
 			rawPayload,
+			normalizedTargetSubscriptionID,
 		)
 		if persistErr != nil {
 			return PayPalCaptureOrderResult{}, persistErr
@@ -370,9 +481,21 @@ func (service *PayPalService) CaptureOrder(ctx context.Context, userID, orderID,
 	}, nil
 }
 
-func (service *PayPalService) createLegacyPayment(ctx context.Context, accessToken string, amount float64, itemName string) (string, error) {
+func (service *PayPalService) createLegacyPayment(ctx context.Context, accessToken string, amount float64, itemName, targetSubscriptionID string) (string, error) {
 	returnURL := service.frontendBaseURL + "/success"
 	cancelURL := service.frontendBaseURL + "/check-out"
+
+	normalizedTargetSubscriptionID := strings.TrimSpace(targetSubscriptionID)
+	if normalizedTargetSubscriptionID != "" {
+		returnURL = appendURLQuery(returnURL, map[string]string{
+			"subscription_id": normalizedTargetSubscriptionID,
+			"checkout_mode":   "quotation",
+		})
+		cancelURL = appendURLQuery(cancelURL, map[string]string{
+			"subscription_id": normalizedTargetSubscriptionID,
+			"checkout_mode":   "quotation",
+		})
+	}
 
 	requestPayload := map[string]interface{}{
 		"intent": "sale",
@@ -427,7 +550,7 @@ func (service *PayPalService) createLegacyPayment(ctx context.Context, accessTok
 	return paymentID, nil
 }
 
-func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, paymentID, payerID string) (PayPalCaptureOrderResult, error) {
+func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, paymentID, payerID, targetSubscriptionID string) (PayPalCaptureOrderResult, error) {
 	if err := service.ensureConfigured(); err != nil {
 		return PayPalCaptureOrderResult{}, err
 	}
@@ -500,7 +623,7 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 			"currency":   paymentCurrency,
 		})
 
-		subscriptionIDs, persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, "", "completed", paymentAmount, paymentCurrency, rawPayload)
+		subscriptionIDs, persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, "", "completed", paymentAmount, paymentCurrency, rawPayload, targetSubscriptionID)
 		if persistErr != nil {
 			log.Printf("[CAPTURE] ERROR persisting xclick fallback payment: %v", persistErr)
 			return PayPalCaptureOrderResult{}, persistErr
@@ -574,7 +697,7 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 			return PayPalCaptureOrderResult{}, fmt.Errorf("failed to encode paypal payment result: %w", marshalErr)
 		}
 
-		persistedSubscriptionIDs, persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, captureID, status, amountValue, currency, rawPayload)
+		persistedSubscriptionIDs, persistErr := service.persistCapturedPayment(ctx, userID, paymentID, payerID, captureID, status, amountValue, currency, rawPayload, targetSubscriptionID)
 		if persistErr != nil {
 			return PayPalCaptureOrderResult{}, persistErr
 		}
@@ -593,9 +716,24 @@ func (service *PayPalService) executeLegacyPayment(ctx context.Context, userID, 
 	}, nil
 }
 
-func (service *PayPalService) buildSandboxXClickURL(paymentID string, amount float64, itemName string) string {
-	returnURL := fmt.Sprintf("%s/success?paymentId=%s&orderId=%s", service.frontendBaseURL, paymentID, paymentID)
+func (service *PayPalService) buildSandboxXClickURL(paymentID string, amount float64, itemName, targetSubscriptionID string) string {
+	returnURL := appendURLQuery(service.frontendBaseURL+"/success", map[string]string{
+		"paymentId": paymentID,
+		"orderId":   paymentID,
+	})
 	cancelReturnURL := service.frontendBaseURL + "/check-out"
+
+	normalizedTargetSubscriptionID := strings.TrimSpace(targetSubscriptionID)
+	if normalizedTargetSubscriptionID != "" {
+		returnURL = appendURLQuery(returnURL, map[string]string{
+			"subscription_id": normalizedTargetSubscriptionID,
+			"checkout_mode":   "quotation",
+		})
+		cancelReturnURL = appendURLQuery(cancelReturnURL, map[string]string{
+			"subscription_id": normalizedTargetSubscriptionID,
+			"checkout_mode":   "quotation",
+		})
+	}
 
 	query := url.Values{}
 	query.Set("cmd", "_xclick")
@@ -625,6 +763,26 @@ func buildPayPalItemSummary(cartItems []models.CartItem) string {
 	}
 
 	return fmt.Sprintf("%s and %d more item(s)", firstItemName, len(cartItems)-1)
+}
+
+func appendURLQuery(rawURL string, params map[string]string) string {
+	parsedURL, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return rawURL
+	}
+
+	queryValues := parsedURL.Query()
+	for key, value := range params {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		queryValues.Set(trimmedKey, trimmedValue)
+	}
+
+	parsedURL.RawQuery = queryValues.Encode()
+	return parsedURL.String()
 }
 
 func (service *PayPalService) requestAccessToken(ctx context.Context) (string, error) {

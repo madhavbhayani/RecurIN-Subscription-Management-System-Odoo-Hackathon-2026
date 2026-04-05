@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import ToastMessage from '../components/common/ToastMessage'
 import { listCartItems } from '../services/cartApi'
 import {
   createPayPalCheckoutOrder,
   getMyCheckoutProfile,
+  listMySubscriptions,
   updateMyCheckoutAddress,
 } from '../services/checkoutApi'
 import { getAuthSession } from '../services/session'
@@ -26,7 +27,9 @@ function formatUsdCurrency(value) {
 }
 
 function CheckoutPage() {
+  const [searchParams] = useSearchParams()
   const [cartItems, setCartItems] = useState([])
+  const [quotationSubscription, setQuotationSubscription] = useState(null)
   const [addressInput, setAddressInput] = useState('')
   const [storedAddress, setStoredAddress] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -36,6 +39,9 @@ function CheckoutPage() {
   const [toastVariant, setToastVariant] = useState('info')
 
   const hasSession = Boolean(getAuthSession()?.token)
+  const checkoutMode = String(searchParams.get('checkout_mode') ?? '').trim().toLowerCase()
+  const quotationSubscriptionID = String(searchParams.get('subscription_id') ?? '').trim()
+  const isQuotationCheckout = checkoutMode === 'quotation' || quotationSubscriptionID !== ''
 
   useEffect(() => {
     let isMounted = true
@@ -43,6 +49,7 @@ function CheckoutPage() {
     const fetchCheckoutData = async () => {
       if (!hasSession) {
         setCartItems([])
+        setQuotationSubscription(null)
         setAddressInput('')
         setStoredAddress('')
         setErrorMessage('')
@@ -53,6 +60,44 @@ function CheckoutPage() {
       setErrorMessage('')
 
       try {
+        if (isQuotationCheckout) {
+          const [profileResponse, subscriptionsResponse] = await Promise.all([
+            getMyCheckoutProfile(),
+            listMySubscriptions(),
+          ])
+
+          if (!isMounted) {
+            return
+          }
+
+          const userAddress = String(profileResponse?.user?.address ?? '').trim()
+          const activeSubscriptions = Array.isArray(subscriptionsResponse?.active_subscriptions)
+            ? subscriptionsResponse.active_subscriptions
+            : []
+          const quotationSubscriptions = Array.isArray(subscriptionsResponse?.quotation_subscriptions)
+            ? subscriptionsResponse.quotation_subscriptions
+            : []
+          const allSubscriptions = [...quotationSubscriptions, ...activeSubscriptions]
+          const selectedSubscription = allSubscriptions.find(
+            (item) => String(item?.subscription_id ?? '').trim() === quotationSubscriptionID,
+          )
+
+          if (!selectedSubscription) {
+            throw new Error('Selected quotation was not found for checkout.')
+          }
+
+          const selectedStatus = String(selectedSubscription?.status ?? '').trim()
+          if (selectedStatus && selectedStatus !== 'Quotation Sent') {
+            throw new Error(`Payment is only allowed when quotation status is Quotation Sent (current: ${selectedStatus}).`)
+          }
+
+          setQuotationSubscription(selectedSubscription)
+          setCartItems([])
+          setAddressInput(userAddress)
+          setStoredAddress(userAddress)
+          return
+        }
+
         const [cartResponse, profileResponse] = await Promise.all([
           listCartItems(),
           getMyCheckoutProfile(),
@@ -66,6 +111,7 @@ function CheckoutPage() {
         const userAddress = String(profileResponse?.user?.address ?? '').trim()
 
         setCartItems(items)
+        setQuotationSubscription(null)
         setAddressInput(userAddress)
         setStoredAddress(userAddress)
       } catch (error) {
@@ -74,6 +120,7 @@ function CheckoutPage() {
         }
 
         setCartItems([])
+        setQuotationSubscription(null)
         setErrorMessage(error.message)
       } finally {
         if (isMounted) {
@@ -87,14 +134,63 @@ function CheckoutPage() {
     return () => {
       isMounted = false
     }
-  }, [hasSession])
+  }, [hasSession, isQuotationCheckout, quotationSubscriptionID])
 
-  const cartTotal = useMemo(() => {
-    return cartItems.reduce((runningTotal, item) => {
+  const checkoutItems = useMemo(() => {
+    if (!isQuotationCheckout) {
+      return cartItems
+    }
+
+    const products = Array.isArray(quotationSubscription?.products) ? quotationSubscription.products : []
+    const fallbackBillingPeriod = String(quotationSubscription?.recurring ?? '').trim()
+
+    return products.map((product, index) => {
+      const quantity = Number(product?.quantity)
+      const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1
+      const unitPrice = Number(product?.unit_price)
+      const totalAmount = Number(product?.total_amount)
+      const variantExtraAmount = Number(product?.variant_extra_amount)
+      const discountAmount = Number(product?.discount_amount)
+
+      const normalizedLineTotal = Number.isFinite(totalAmount) && totalAmount > 0
+        ? totalAmount
+        : (Number.isFinite(unitPrice) ? unitPrice * safeQuantity : 0)
+
+      const selectedVariants = Array.isArray(product?.selected_variants) ? product.selected_variants : []
+      const selectedVariantLabel = selectedVariants
+        .map((selectedVariant) => {
+          const attributeName = String(selectedVariant?.attribute_name ?? '').trim()
+          const attributeValue = String(selectedVariant?.attribute_value ?? '').trim()
+          if (attributeName && attributeValue) {
+            return `${attributeName}: ${attributeValue}`
+          }
+          return attributeValue || attributeName
+        })
+        .filter(Boolean)
+        .join(', ')
+
+      return {
+        cart_item_id: String(product?.subscription_product_id ?? `${product?.product_id ?? 'quotation'}-${index}`),
+        product_id: product?.product_id || null,
+        product_name: product?.product_name || 'Product',
+        quantity: safeQuantity,
+        unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+        selected_variant_price: Number.isFinite(variantExtraAmount) ? variantExtraAmount : 0,
+        discount_amount: Number.isFinite(discountAmount) ? discountAmount : 0,
+        effective_unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+        line_total: Number.isFinite(normalizedLineTotal) ? normalizedLineTotal : 0,
+        billing_period: fallbackBillingPeriod,
+        selected_variant_attribute_name: selectedVariantLabel || null,
+      }
+    })
+  }, [cartItems, isQuotationCheckout, quotationSubscription])
+
+  const checkoutTotal = useMemo(() => {
+    return checkoutItems.reduce((runningTotal, item) => {
       const lineTotal = Number(item?.line_total)
       return runningTotal + (Number.isFinite(lineTotal) ? lineTotal : 0)
     }, 0)
-  }, [cartItems])
+  }, [checkoutItems])
 
   const handleProceedToPay = async () => {
     if (!hasSession) {
@@ -110,9 +206,15 @@ function CheckoutPage() {
       return
     }
 
-    if (cartItems.length === 0) {
+    if (checkoutItems.length === 0) {
       setToastVariant('error')
-      setToastMessage('Your cart is empty.')
+      setToastMessage(isQuotationCheckout ? 'No quotation items available for payment.' : 'Your cart is empty.')
+      return
+    }
+
+    if (isQuotationCheckout && !quotationSubscriptionID) {
+      setToastVariant('error')
+      setToastMessage('Subscription ID is missing for quotation checkout.')
       return
     }
 
@@ -125,7 +227,9 @@ function CheckoutPage() {
         setAddressInput(updatedAddress)
       }
 
-      const orderResponse = await createPayPalCheckoutOrder()
+      const orderResponse = await createPayPalCheckoutOrder(
+        isQuotationCheckout ? { subscription_id: quotationSubscriptionID } : undefined,
+      )
       const approvalURL = String(orderResponse?.approval_url ?? '').trim()
 
       if (!approvalURL) {
@@ -133,7 +237,7 @@ function CheckoutPage() {
       }
 
       try {
-        const snapshotItems = cartItems.map((item) => {
+        const snapshotItems = checkoutItems.map((item) => {
           const quantity = Number(item?.quantity)
           const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1
           const unitPrice = Number(item?.unit_price)
@@ -158,11 +262,16 @@ function CheckoutPage() {
         })
 
         const checkoutSnapshot = {
-          amount_inr: Number(cartTotal.toFixed(2)),
+          amount_inr: Number(checkoutTotal.toFixed(2)),
           currency: 'INR',
           item_count: snapshotItems.length,
           payment_method: 'PayPal',
           address: normalizedAddress,
+          checkout_mode: isQuotationCheckout ? 'quotation' : 'cart',
+          subscription_id: isQuotationCheckout ? quotationSubscriptionID : null,
+          subscription_number: isQuotationCheckout
+            ? String(quotationSubscription?.subscription_number ?? '').trim() || null
+            : null,
           items: snapshotItems,
           created_at: new Date().toISOString(),
         }
@@ -186,7 +295,9 @@ function CheckoutPage() {
       <section className="rounded-2xl border border-[color:rgba(0,0,128,0.14)] bg-[var(--white)] p-6 shadow-[0_8px_24px_rgba(0,0,128,0.08)] sm:p-8">
         <h1 className="text-3xl font-bold text-[var(--navy)] sm:text-4xl">Checkout</h1>
         <p className="mt-2 text-sm text-[color:rgba(0,0,128,0.78)] sm:text-base">
-          Add your address, preview your order, and continue to PayPal to complete payment.
+          {isQuotationCheckout
+            ? 'Review your quotation, confirm your address, and continue to PayPal to confirm this subscription.'
+            : 'Add your address, preview your order, and continue to PayPal to complete payment.'}
         </p>
 
         {!hasSession ? (
@@ -209,15 +320,17 @@ function CheckoutPage() {
           <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-5 text-sm text-red-700">
             {errorMessage}
           </div>
-        ) : cartItems.length === 0 ? (
+        ) : checkoutItems.length === 0 ? (
           <div className="mt-6 rounded-xl border border-[color:rgba(0,0,128,0.12)] px-4 py-6 text-sm text-[color:rgba(0,0,128,0.66)]">
-            Your cart is empty. Add products before checkout.
+            {isQuotationCheckout
+              ? 'No quotation items are available for this subscription.'
+              : 'Your cart is empty. Add products before checkout.'}
             <div className="mt-3">
               <Link
-                to="/shop"
+                to={isQuotationCheckout ? '/subscription' : '/shop'}
                 className="inline-flex h-9 items-center rounded-lg border border-[color:rgba(0,0,128,0.22)] px-4 text-sm font-semibold text-[var(--navy)] transition-colors duration-200 hover:border-[var(--orange)] hover:text-[var(--orange)]"
               >
-                Go to Shop
+                {isQuotationCheckout ? 'Back to Subscriptions' : 'Go to Shop'}
               </Link>
             </div>
           </div>
@@ -248,11 +361,20 @@ function CheckoutPage() {
             </div>
 
             <div className="rounded-xl border border-[color:rgba(0,0,128,0.12)] p-4 sm:p-5">
-              <h2 className="text-lg font-bold text-[var(--navy)]">Order Preview</h2>
+              <h2 className="text-lg font-bold text-[var(--navy)]">
+                {isQuotationCheckout ? 'Quotation Preview' : 'Order Preview'}
+              </h2>
+
+              {isQuotationCheckout && quotationSubscription ? (
+                <div className="mt-3 rounded-lg border border-[color:rgba(0,0,128,0.14)] bg-[rgba(0,0,128,0.03)] px-3 py-2 text-xs text-[color:rgba(0,0,128,0.76)]">
+                  <p><span className="font-semibold text-[var(--navy)]">Subscription:</span> {quotationSubscription.subscription_number || '-'}</p>
+                  <p className="mt-1"><span className="font-semibold text-[var(--navy)]">Status:</span> {quotationSubscription.status || '-'}</p>
+                </div>
+              ) : null}
 
               <div className="mt-4 space-y-3">
-                {cartItems.map((item) => {
-                  const cartItemID = String(item?.cart_item_id ?? '')
+                {checkoutItems.map((item) => {
+                  const cartItemID = String(item?.cart_item_id ?? item?.product_id ?? '')
                   const quantity = Number(item?.quantity)
                   const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1
 
@@ -282,7 +404,7 @@ function CheckoutPage() {
               <div className="mt-4 rounded-lg border border-[color:rgba(0,0,128,0.14)] bg-[rgba(0,0,128,0.03)] px-4 py-3 text-sm text-[var(--navy)]">
                 <p className="flex items-center justify-between">
                   <span className="font-semibold">Total Amount (USD)</span>
-                  <span className="text-base font-bold">{formatUsdCurrency(cartTotal)}</span>
+                  <span className="text-base font-bold">{formatUsdCurrency(checkoutTotal)}</span>
                 </p>
               </div>
 
@@ -292,7 +414,7 @@ function CheckoutPage() {
                 disabled={isSubmitting}
                 className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-lg bg-[var(--orange)] px-4 text-sm font-semibold text-[var(--white)] transition-colors duration-200 hover:bg-[#e65f00] disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {isSubmitting ? 'Redirecting to PayPal...' : `Pay ${formatUsdCurrency(cartTotal)}`}
+                {isSubmitting ? 'Redirecting to PayPal...' : `Pay ${formatUsdCurrency(checkoutTotal)}`}
               </button>
 
               <p className="mt-2 text-xs text-[color:rgba(0,0,128,0.68)]">

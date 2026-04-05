@@ -146,9 +146,16 @@ export function updateMyCheckoutAddress(address) {
   })
 }
 
-export function createPayPalCheckoutOrder() {
+export function createPayPalCheckoutOrder(options = {}) {
+  const normalizedSubscriptionID = String(options?.subscription_id ?? '').trim()
+
+  const payload = normalizedSubscriptionID
+    ? { subscription_id: normalizedSubscriptionID }
+    : undefined
+
   return requestWithAuth('/api/v1/payments/paypal/create-order', {
     method: 'POST',
+    payload,
   })
 }
 
@@ -205,6 +212,13 @@ export function capturePayPalCheckoutOrder(capturePayload) {
   const normalizedPayload = typeof capturePayload === 'string'
     ? { order_id: capturePayload }
     : (capturePayload && typeof capturePayload === 'object' ? capturePayload : {})
+
+  const normalizedSubscriptionID = String(normalizedPayload.subscription_id ?? '').trim()
+  if (normalizedSubscriptionID) {
+    normalizedPayload.subscription_id = normalizedSubscriptionID
+  } else {
+    delete normalizedPayload.subscription_id
+  }
 
   return requestWithAuth('/api/v1/payments/paypal/capture-order', {
     method: 'POST',
