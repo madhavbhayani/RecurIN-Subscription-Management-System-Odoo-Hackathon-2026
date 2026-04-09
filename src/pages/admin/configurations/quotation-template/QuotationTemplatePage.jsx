@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
+import Pagination from '../../../../components/common/Pagination'
 import ToastMessage from '../../../../components/common/ToastMessage'
 import { deleteQuotationTemplate, listQuotationTemplates } from '../../../../services/quotationTemplateApi'
+import { buildPaginationState, createInitialPagination } from '../../../../utils/pagination'
 
 function formatValidityLabel(quotation) {
   if (Boolean(quotation?.last_forever)) {
@@ -30,6 +32,9 @@ function QuotationTemplatePage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [quotations, setQuotations] = useState([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState(() => createInitialPagination())
+  const [refreshKey, setRefreshKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [toastVariant, setToastVariant] = useState('error')
@@ -39,6 +44,7 @@ function QuotationTemplatePage() {
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
+      setCurrentPage(1)
     }, 300)
 
     return () => {
@@ -52,18 +58,25 @@ function QuotationTemplatePage() {
     const fetchQuotations = async () => {
       setIsLoading(true)
       try {
-        const response = await listQuotationTemplates(searchTerm)
+        const response = await listQuotationTemplates(searchTerm, currentPage)
         if (!isMounted) {
           return
         }
 
         setQuotations(Array.isArray(response?.quotations) ? response.quotations : [])
+        const paginationState = buildPaginationState(response?.pagination, currentPage)
+        setPagination(paginationState)
+
+        if (paginationState.total_pages > 0 && currentPage > paginationState.total_pages) {
+          setCurrentPage(paginationState.total_pages)
+        }
       } catch (error) {
         if (!isMounted) {
           return
         }
 
         setQuotations([])
+        setPagination(createInitialPagination(currentPage))
         setToastVariant('error')
         setToastMessage(error.message)
       } finally {
@@ -78,7 +91,7 @@ function QuotationTemplatePage() {
     return () => {
       isMounted = false
     }
-  }, [searchTerm])
+  }, [searchTerm, currentPage, refreshKey])
 
   const handleOpenDeleteDialog = (quotation) => {
     setQuotationPendingDelete(quotation)
@@ -102,10 +115,10 @@ function QuotationTemplatePage() {
     setIsDeleting(true)
     try {
       const response = await deleteQuotationTemplate(quotationID)
-      setQuotations((previousQuotations) => previousQuotations.filter((quotation) => quotation.quotation_id !== quotationID))
       setToastVariant('success')
       setToastMessage(response?.message ?? 'Quotation deleted successfully.')
       setQuotationPendingDelete(null)
+      setRefreshKey((previousKey) => previousKey + 1)
     } catch (error) {
       setToastVariant('error')
       setToastMessage(error.message)
@@ -194,6 +207,13 @@ function QuotationTemplatePage() {
           </div>
         )}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={pagination.total_pages}
+        onPageChange={setCurrentPage}
+        isDisabled={isLoading}
+      />
 
       {quotationPendingDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">

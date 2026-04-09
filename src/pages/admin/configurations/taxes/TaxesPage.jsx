@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
+import Pagination from '../../../../components/common/Pagination'
 import ToastMessage from '../../../../components/common/ToastMessage'
 import { deleteTax, listTaxes } from '../../../../services/taxApi'
+import { buildPaginationState, createInitialPagination } from '../../../../utils/pagination'
 
 const TAX_UNIT_META = {
   'Fixed Price': {
@@ -49,6 +51,9 @@ function TaxesPage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [taxes, setTaxes] = useState([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState(() => createInitialPagination())
+  const [refreshKey, setRefreshKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [toastVariant, setToastVariant] = useState('error')
@@ -58,6 +63,7 @@ function TaxesPage() {
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
+      setCurrentPage(1)
     }, 300)
 
     return () => {
@@ -71,18 +77,25 @@ function TaxesPage() {
     const fetchTaxes = async () => {
       setIsLoading(true)
       try {
-        const response = await listTaxes(searchTerm)
+        const response = await listTaxes(searchTerm, currentPage)
         if (!isMounted) {
           return
         }
 
         setTaxes(Array.isArray(response?.taxes) ? response.taxes : [])
+        const paginationState = buildPaginationState(response?.pagination, currentPage)
+        setPagination(paginationState)
+
+        if (paginationState.total_pages > 0 && currentPage > paginationState.total_pages) {
+          setCurrentPage(paginationState.total_pages)
+        }
       } catch (error) {
         if (!isMounted) {
           return
         }
 
         setTaxes([])
+        setPagination(createInitialPagination(currentPage))
         setToastVariant('error')
         setToastMessage(error.message)
       } finally {
@@ -97,7 +110,7 @@ function TaxesPage() {
     return () => {
       isMounted = false
     }
-  }, [searchTerm])
+  }, [searchTerm, currentPage, refreshKey])
 
   const handleOpenDeleteDialog = (tax) => {
     setTaxPendingDelete(tax)
@@ -121,10 +134,10 @@ function TaxesPage() {
     setIsDeleting(true)
     try {
       const response = await deleteTax(taxID)
-      setTaxes((previousTaxes) => previousTaxes.filter((tax) => tax.tax_id !== taxID))
       setToastVariant('success')
       setToastMessage(response?.message ?? 'Tax deleted successfully.')
       setTaxPendingDelete(null)
+      setRefreshKey((previousKey) => previousKey + 1)
     } catch (error) {
       setToastVariant('error')
       setToastMessage(error.message)
@@ -211,6 +224,13 @@ function TaxesPage() {
           </div>
         )}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={pagination.total_pages}
+        onPageChange={setCurrentPage}
+        isDisabled={isLoading}
+      />
 
       {taxPendingDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">

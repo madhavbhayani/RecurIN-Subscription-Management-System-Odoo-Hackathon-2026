@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import Pagination from '../../components/common/Pagination'
 import { listProductsPublic } from '../../services/productApi'
 
 const CURRENCY_SYMBOL = '$'
+const SHOP_PAGE_SIZE = 30
 
 const PRICE_RANGE_OPTIONS = [
   {
@@ -62,6 +64,7 @@ function ShopPage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [products, setProducts] = useState([])
+  const [currentPage, setCurrentPage] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -71,6 +74,7 @@ function ShopPage() {
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
+      setCurrentPage(1)
     }, 300)
 
     return () => {
@@ -171,6 +175,32 @@ function ShopPage() {
 
     return filteredProducts
   }, [products, selectedCategory, selectedPriceRule, sortBy])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedCategory, selectedPriceRange, sortBy])
+
+  const paginationState = useMemo(() => {
+    const totalPages = visibleProducts.length > 0
+      ? Math.ceil(visibleProducts.length / SHOP_PAGE_SIZE)
+      : 0
+    const safeCurrentPage = totalPages > 0
+      ? Math.min(Math.max(currentPage, 1), totalPages)
+      : 1
+    const startIndex = (safeCurrentPage - 1) * SHOP_PAGE_SIZE
+
+    return {
+      totalPages,
+      safeCurrentPage,
+      items: visibleProducts.slice(startIndex, startIndex + SHOP_PAGE_SIZE),
+    }
+  }, [visibleProducts, currentPage])
+
+  useEffect(() => {
+    if (paginationState.totalPages > 0 && currentPage > paginationState.totalPages) {
+      setCurrentPage(paginationState.totalPages)
+    }
+  }, [currentPage, paginationState.totalPages])
 
   return (
     <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
@@ -277,7 +307,7 @@ function ShopPage() {
               </div>
             ) : (
               <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {visibleProducts.map((product, index) => {
+                {paginationState.items.map((product, index) => {
                   const productID = String(product?.product_id ?? '').trim()
                   const productName = String(product?.product_name ?? '').trim() || 'Untitled Product'
                   const productType = String(product?.product_type ?? '').trim() || 'Subscription Product'
@@ -325,6 +355,14 @@ function ShopPage() {
                   )
                 })}
               </div>
+            )}
+
+            {!isLoading && !errorMessage && visibleProducts.length > 0 && (
+              <Pagination
+                currentPage={paginationState.safeCurrentPage}
+                totalPages={paginationState.totalPages}
+                onPageChange={setCurrentPage}
+              />
             )}
           </section>
         </div>

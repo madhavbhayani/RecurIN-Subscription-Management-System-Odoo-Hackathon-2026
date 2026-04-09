@@ -49,7 +49,7 @@ function Pagination({ currentPage, totalPages, onPageChange, isDisabled = false 
             return (
               <span
                 key={pageItem}
-                className="inline-flex h-9 min-w-9 items-center justify-center px-1 text-sm text-[color:rgba(0,0,128,0.55)]"
+                className="inline-flex h-9 min-w-[2.25rem] items-center justify-center px-1 text-sm text-[color:rgba(0,0,128,0.55)]"
               >
                 ...
               </span>
@@ -64,7 +64,7 @@ function Pagination({ currentPage, totalPages, onPageChange, isDisabled = false 
               type="button"
               onClick={() => onPageChange(pageItem)}
               disabled={isDisabled || isActivePage}
-              className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2.5 text-sm font-semibold transition-colors duration-200 ${isActivePage
+              className={`inline-flex h-9 min-w-[2.25rem] items-center justify-center rounded-lg border px-2.5 text-sm font-semibold transition-colors duration-200 ${isActivePage
                 ? 'border-[var(--orange)] bg-[var(--orange)] text-white'
                 : 'border-[color:rgba(0,0,128,0.22)] text-[var(--navy)] hover:bg-[rgba(0,0,128,0.04)]'} disabled:cursor-not-allowed disabled:opacity-70`}
             >

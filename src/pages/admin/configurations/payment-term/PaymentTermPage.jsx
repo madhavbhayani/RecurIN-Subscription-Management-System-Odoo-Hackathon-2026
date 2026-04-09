@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import { Link } from 'react-router-dom'
+import Pagination from '../../../../components/common/Pagination'
 import ToastMessage from '../../../../components/common/ToastMessage'
 import { deletePaymentTerm, listPaymentTerms } from '../../../../services/paymentTermApi'
+import { buildPaginationState, createInitialPagination } from '../../../../utils/pagination'
 
 function formatDueValue(dueUnit, dueValue) {
   const numericValue = Number(dueValue)
@@ -23,6 +25,9 @@ function PaymentTermPage() {
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [paymentTerms, setPaymentTerms] = useState([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState(() => createInitialPagination())
+  const [refreshKey, setRefreshKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [toastVariant, setToastVariant] = useState('error')
@@ -32,6 +37,7 @@ function PaymentTermPage() {
   useEffect(() => {
     const debounceTimer = window.setTimeout(() => {
       setSearchTerm(searchInput.trim())
+      setCurrentPage(1)
     }, 300)
 
     return () => {
@@ -45,18 +51,25 @@ function PaymentTermPage() {
     const fetchPaymentTerms = async () => {
       setIsLoading(true)
       try {
-        const response = await listPaymentTerms(searchTerm)
+        const response = await listPaymentTerms(searchTerm, currentPage)
         if (!isMounted) {
           return
         }
 
         setPaymentTerms(Array.isArray(response?.payment_terms) ? response.payment_terms : [])
+        const paginationState = buildPaginationState(response?.pagination, currentPage)
+        setPagination(paginationState)
+
+        if (paginationState.total_pages > 0 && currentPage > paginationState.total_pages) {
+          setCurrentPage(paginationState.total_pages)
+        }
       } catch (error) {
         if (!isMounted) {
           return
         }
 
         setPaymentTerms([])
+        setPagination(createInitialPagination(currentPage))
         setToastVariant('error')
         setToastMessage(error.message)
       } finally {
@@ -71,7 +84,7 @@ function PaymentTermPage() {
     return () => {
       isMounted = false
     }
-  }, [searchTerm])
+  }, [searchTerm, currentPage, refreshKey])
 
   const handleOpenDeleteDialog = (paymentTerm) => {
     setPaymentTermPendingDelete(paymentTerm)
@@ -95,10 +108,10 @@ function PaymentTermPage() {
     setIsDeleting(true)
     try {
       const response = await deletePaymentTerm(paymentTermID)
-      setPaymentTerms((previousPaymentTerms) => previousPaymentTerms.filter((paymentTerm) => paymentTerm.payment_term_id !== paymentTermID))
       setToastVariant('success')
       setToastMessage(response?.message ?? 'Payment term deleted successfully.')
       setPaymentTermPendingDelete(null)
+      setRefreshKey((previousKey) => previousKey + 1)
     } catch (error) {
       setToastVariant('error')
       setToastMessage(error.message)
@@ -185,6 +198,13 @@ function PaymentTermPage() {
           </div>
         )}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={pagination.total_pages}
+        onPageChange={setCurrentPage}
+        isDisabled={isLoading}
+      />
 
       {paymentTermPendingDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/35 p-4">

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import Pagination from '../components/common/Pagination'
 import {
   downloadMySubscriptionInvoicePdf,
   downloadMySubscriptionQuotationPdf,
@@ -10,6 +11,7 @@ import { getAuthSession } from '../services/session'
 
 const TAB_ACTIVE = 'active'
 const TAB_QUOTATIONS = 'quotations'
+const SUBSCRIPTIONS_PAGE_SIZE = 30
 
 function formatDate(dateValue) {
   const value = String(dateValue ?? '').trim()
@@ -166,6 +168,8 @@ function MySubscriptionPage() {
   const [activeTab, setActiveTab] = useState(TAB_ACTIVE)
   const [activeSubscriptions, setActiveSubscriptions] = useState([])
   const [quotationSubscriptions, setQuotationSubscriptions] = useState([])
+  const [activePage, setActivePage] = useState(1)
+  const [quotationPage, setQuotationPage] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [actionMessage, setActionMessage] = useState('')
@@ -258,6 +262,54 @@ function MySubscriptionPage() {
     return activeTab === TAB_ACTIVE ? activeSubscriptions : quotationSubscriptions
   }, [activeTab, activeSubscriptions, quotationSubscriptions])
 
+  const currentPage = activeTab === TAB_ACTIVE ? activePage : quotationPage
+
+  const currentTotalPages = useMemo(() => {
+    if (currentItems.length === 0) {
+      return 0
+    }
+
+    return Math.ceil(currentItems.length / SUBSCRIPTIONS_PAGE_SIZE)
+  }, [currentItems])
+
+  const pagedCurrentItems = useMemo(() => {
+    const safeCurrentPage = currentTotalPages > 0
+      ? Math.min(Math.max(currentPage, 1), currentTotalPages)
+      : 1
+    const startIndex = (safeCurrentPage - 1) * SUBSCRIPTIONS_PAGE_SIZE
+
+    return currentItems.slice(startIndex, startIndex + SUBSCRIPTIONS_PAGE_SIZE)
+  }, [currentItems, currentPage, currentTotalPages])
+
+  useEffect(() => {
+    const activeTotalPages = activeSubscriptions.length > 0
+      ? Math.ceil(activeSubscriptions.length / SUBSCRIPTIONS_PAGE_SIZE)
+      : 0
+
+    if (activeTotalPages > 0 && activePage > activeTotalPages) {
+      setActivePage(activeTotalPages)
+    }
+  }, [activeSubscriptions, activePage])
+
+  useEffect(() => {
+    const quotationsTotalPages = quotationSubscriptions.length > 0
+      ? Math.ceil(quotationSubscriptions.length / SUBSCRIPTIONS_PAGE_SIZE)
+      : 0
+
+    if (quotationsTotalPages > 0 && quotationPage > quotationsTotalPages) {
+      setQuotationPage(quotationsTotalPages)
+    }
+  }, [quotationSubscriptions, quotationPage])
+
+  const handlePageChange = (nextPage) => {
+    if (activeTab === TAB_ACTIVE) {
+      setActivePage(nextPage)
+      return
+    }
+
+    setQuotationPage(nextPage)
+  }
+
   return (
     <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
       <section className="rounded-2xl border border-[color:rgba(0,0,128,0.14)] bg-[var(--white)] p-6 shadow-[0_8px_24px_rgba(0,0,128,0.08)] sm:p-8">
@@ -322,7 +374,7 @@ function MySubscriptionPage() {
                 </div>
               ) : (
                 <SubscriptionCards
-                  items={currentItems}
+                  items={pagedCurrentItems}
                   isQuotation={activeTab === TAB_QUOTATIONS}
                   onQuotationAction={handleQuotationAction}
                   onDownloadInvoice={handleInvoiceDownload}
@@ -332,6 +384,14 @@ function MySubscriptionPage() {
                       ? 'No active subscriptions available right now.'
                       : 'No quotations available right now.'
                   }
+                />
+              )}
+
+              {!isLoading && !errorMessage && currentItems.length > 0 && (
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={currentTotalPages}
+                  onPageChange={handlePageChange}
                 />
               )}
             </div>
